@@ -42,17 +42,19 @@ jobs:
           # Apple Silicon only runs signed code; this signs it with a local (free) identity.
           codesign --force --deep --sign - "dist/Emporium Print Studio.app"
       - name: Self-test of the built app
-        run: '"dist/Emporium Print Studio.app/Contents/MacOS/Emporium Print Studio" --selftest'
+        run: |
+          set -o pipefail
+          "dist/Emporium Print Studio.app/Contents/MacOS/Emporium Print Studio" --selftest 2>&1 | tee "$RUNNER_TEMP/selftest.log"
+          echo "::notice title=Self-test::$(grep -c '  ok ' "$RUNNER_TEMP/selftest.log") checks passed in the built app"
       - name: Start the built app window
-        continue-on-error: true
         run: |
           export EMPORIUM_HOME="$RUNNER_TEMP/emporium-home"
           "dist/Emporium Print Studio.app/Contents/MacOS/Emporium Print Studio" > "$RUNNER_TEMP/app.log" 2>&1 &
           for i in $(seq 1 30); do
             sleep 2
-            if curl -sf http://127.0.0.1:8080/api/config; then echo; echo "App window started."; exit 0; fi
+            if curl -sf http://127.0.0.1:8080/api/config; then echo; echo "::notice title=App window::The built app started and answered"; exit 0; fi
           done
-          cat "$RUNNER_TEMP/app.log"; exit 1
+          echo "::error title=App window did not start::$(tr '\n' '|' < "$RUNNER_TEMP/app.log" | head -c 3000)"; exit 1
       - name: Zip
         run: |
           pkill -f "Emporium Print Studio" || true
