@@ -1,0 +1,73 @@
+name: Build the Mac app
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    # Quick check of the engine on every change.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r requirements.txt
+      - run: python app/selftest.py
+
+  mac-app:
+    runs-on: macos-14            # Apple Silicon (M1, M2, M3, M4)
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r requirements-desktop.txt
+      - name: Build the app
+        run: |
+          pyinstaller --noconfirm --windowed \
+            --name "Emporium Print Studio" \
+            --icon packaging/icon.png \
+            --osx-bundle-identifier com.emporium.printstudio \
+            --paths app \
+            --add-data "app/web:web" \
+            --collect-submodules webview \
+            --hidden-import webview.platforms.cocoa \
+            app/desktop.py
+          # Apple Silicon only runs signed code; this signs it with a local (free) identity.
+          codesign --force --deep --sign - "dist/Emporium Print Studio.app"
+      - name: Self-test of the built app
+        run: '"dist/Emporium Print Studio.app/Contents/MacOS/Emporium Print Studio" --selftest'
+      - name: Start the built app window
+        continue-on-error: true
+        run: |
+          export EMPORIUM_HOME="$RUNNER_TEMP/emporium-home"
+          "dist/Emporium Print Studio.app/Contents/MacOS/Emporium Print Studio" > "$RUNNER_TEMP/app.log" 2>&1 &
+          for i in $(seq 1 30); do
+            sleep 2
+            if curl -sf http://127.0.0.1:8080/api/config; then echo; echo "App window started."; exit 0; fi
+          done
+          cat "$RUNNER_TEMP/app.log"; exit 1
+      - name: Zip
+        run: |
+          pkill -f "Emporium Print Studio" || true
+          cd dist && ditto -c -k --sequesterRsrc --keepParent "Emporium Print Studio.app" ../Emporium-Print-Studio-mac-arm64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Emporium-Print-Studio-mac-arm64
+          path: Emporium-Print-Studio-mac-arm64.zip
+      - name: Publish the download
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            gh release create "$GITHUB_REF_NAME" Emporium-Print-Studio-mac-arm64.zip --title "Emporium Print Studio $GITHUB_REF_NAME" --notes "Mac app for Apple Silicon."
+          else
+            gh release delete latest --cleanup-tag -y || true
+            gh release create latest Emporium-Print-Studio-mac-arm64.zip --prerelease --target "$GITHUB_SHA" \
+              --title "Latest build" --notes "Automatic build of the newest code. Mac app for Apple Silicon (M1 to M4)."
+          fi

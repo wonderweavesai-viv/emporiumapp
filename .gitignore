@@ -1,0 +1,17 @@
+# Never commit artworks, settings, secrets or generated files
+config.json
+.secret
+*.secret
+output/
+library/
+*.tif
+*.tiff
+*.psd
+*.db
+*.sqlite
+.venv/
+__pycache__/
+build/
+dist/
+*.spec.bak
+.DS_Store
