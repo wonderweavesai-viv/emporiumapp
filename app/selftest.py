@@ -159,6 +159,72 @@ def run():
         check((tiff.parent / "job.txt").read_text().count("HSL all colours") == 1, "job sheet lists the colour edit")
         c.call("POST", "/api/open", {"kind": "job", "folder": job["result"]["folder"]})
 
+        print("Image default resolution")
+        native = dict(payload, dpi="native", recipe={})
+        st, job, _ = c.call("POST", "/api/print", native)
+        check(st == 202 and abs(job["dpi"] - 101.6) < 0.05, f"image default works out the artwork's own dpi ({job.get('dpi')})")
+        for _ in range(240):
+            job = c.call("GET", "/api/jobs/" + job["id"])[1]
+            if job["status"] in ("done", "error"):
+                break
+            time.sleep(0.5)
+        check(job["status"] == "done" and job["result"]["px"] == [1200, 1600], f"image default file has no resampling {job['result']['px']}")
+        check("own resolution" in (out / job["result"]["folder"] / "job.txt").read_text(), "job sheet says image default")
+
+        print("Texture layer")
+        tdir = home / "textures"
+        (tdir / "Paper").mkdir(parents=True)
+        Image.fromarray(np.full((300, 400, 3), 128, np.uint8)).save(tdir / "Paper" / "grey-paper.png")
+        Image.fromarray(np.full((200, 200, 3), 230, np.uint8)).save(tdir / "linen_weave.jpg")
+        (tdir / "notes.txt").write_text("not an image")
+        check(c.call("GET", "/api/textures")[1] == [], "no textures before a folder is chosen")
+        check(c.call("POST", "/api/settings", {"texture_dir": str(home / "nope")})[0] == 400, "a missing texture folder is refused")
+        st, j, _ = c.call("POST", "/api/settings", {"texture_dir": str(tdir)})
+        check(st == 200 and j["texture_count"] == 2, "texture folder saved, 2 textures found (text file ignored)")
+        texs = {t["name"]: t for t in c.call("GET", "/api/textures")[1]}
+        check(set(texs) == {"Grey Paper", "Linen Weave"} and texs["Grey Paper"]["folder"] == "Paper", "textures listed with names and folders")
+        check(str(tdir) not in json.dumps(texs), "texture file paths are not sent to the browser")
+        check(c.call("GET", "/" + texs["Grey Paper"]["thumb"])[0] == 200 and c.call("GET", "/" + texs["Grey Paper"]["preview"])[0] == 200,
+              "texture thumbnail and preview served")
+        # the maths, on a tiny wall where every pixel is known (texture: 4 px white then 4 px grey)
+        import core, render
+        tex = np.full((4, 8, 3), 255, np.uint8)
+        tex[:, 4:] = 128
+        art = Image.new("RGB", (100, 100), (200, 100, 50))
+        info = lambda tid: (tdir / "x.png", "Test", 8, 4)
+        base = {"art_w": 10, "off_x": 0, "off_y": 0}
+        def row(texture):
+            r = core.check_recipe(dict(base, texture=texture), 100, 100, 10, 10, info)
+            return np.asarray(render.render(art, r, 10, 10, 20, 20, texture=Image.fromarray(tex)))[5]
+        rep = row({"id": "a", "scale": 4, "mode": "repeat", "opacity": 100})
+        check(tuple(rep[1]) == (200, 100, 50) and tuple(rep[6]) == (100, 50, 25) and tuple(rep[9]) == (200, 100, 50) and tuple(rep[14]) == (100, 50, 25),
+              "multiply, repeat: white leaves the artwork alone, grey darkens it, and the tile repeats")
+        mir = row({"id": "a", "scale": 4, "mode": "mirror", "opacity": 100})
+        check(tuple(mir[1]) == (200, 100, 50) and tuple(mir[6]) == (100, 50, 25) and tuple(mir[9]) == (100, 50, 25) and tuple(mir[14]) == (200, 100, 50),
+              "multiply, mirror: every second tile is flipped")
+        half = row({"id": "a", "scale": 4, "mode": "repeat", "opacity": 50})
+        check(tuple(half[6]) == (150, 75, 37) or tuple(half[6]) == (150, 75, 38), f"opacity 50 is halfway {tuple(half[6])}")
+        check(tuple(row({"id": "a", "scale": 4, "mode": "repeat", "opacity": 0})[6]) == (200, 100, 50), "opacity 0 changes nothing")
+        # the whole flow
+        tp = dict(payload, recipe={"texture": {"id": texs["Grey Paper"]["id"], "scale": 30, "mode": "mirror", "opacity": 60}})
+        st, pdf, _ = c.call("POST", "/api/proof", tp)
+        check(st == 200 and pdf[:4] == b"%PDF", "proof with a texture")
+        bad = dict(payload, recipe={"texture": {"id": "doesnotexist", "scale": 30}})
+        check(c.call("POST", "/api/proof", bad)[0] == 400, "an unknown texture is refused")
+        st, job, _ = c.call("POST", "/api/print", tp)
+        check(st == 202, "print job with a texture accepted")
+        for _ in range(240):
+            job = c.call("GET", "/api/jobs/" + job["id"])[1]
+            if job["status"] in ("done", "error"):
+                break
+            time.sleep(0.5)
+        check(job["status"] == "done", "print job with a texture finished")
+        sheet = (out / job["result"]["folder"] / "job.txt").read_text()
+        check("EDITED VERSION" in sheet and 'Texture "Grey Paper"' in sheet and "opacity 60%" in sheet, "job sheet lists the texture and marks it EDITED")
+        flat = next((out / job["result"]["folder"]).glob("*_print.tiff"))
+        with Image.open(flat) as im, Image.open(tiff) as ref:
+            check(np.asarray(im).mean() < np.asarray(ref).mean() - 10, "the printed file really is darker with the texture multiplied in")
+
         print("Office network")
         st, j, _ = c.call("POST", "/api/settings", {"share_network": True})
         check(st == 400, "sharing is refused until a PIN is set")
@@ -174,6 +240,7 @@ def run():
         check(st == 200, "right PIN accepted")
         team.cookie = h["Set-Cookie"].split(";")[0]
         check(team.call("GET", "/api/catalog")[0] == 200, "team member can browse")
+        check(team.call("GET", "/api/textures")[0] == 200, "team members can use textures")
         check(team.call("GET", "/api/settings")[0] == 403 and team.call("POST", "/api/artwork", {"id": rose, "name": "x"})[0] == 403,
               "team member cannot change settings or tags")
         check(server.RUNTIME["host"] == "0.0.0.0", "server listens on the office network")

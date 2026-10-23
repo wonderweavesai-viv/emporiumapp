@@ -74,7 +74,7 @@ def send_printer_email(cfg: dict, out_dir: Path, job: dict, sheet_text: str):
     lines += ["Job details", "-----------", sheet_text.strip(), "", e.get("signature", "Emporium")]
 
     msg = EmailMessage()
-    msg["Subject"] = f"Print job {job['id']} - {job['artwork_name']}{' [EDITED]' if job.get('edits') else ''} - {job['dpi']} dpi"
+    msg["Subject"] = f"Print job {job['id']} - {job['artwork_name']}{' [EDITED]' if job.get('edits') else ''} - {job['dpi']:g} dpi"
     msg["From"] = e["from"]
     msg["To"] = ", ".join(e["to"])
     if e.get("cc"):

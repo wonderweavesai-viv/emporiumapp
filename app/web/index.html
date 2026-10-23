@@ -73,6 +73,10 @@ button { font: inherit; color: inherit; }
 .iconbtn:hover { background: var(--bg); }
 .iconbtn svg { width: 20px; height: 20px; }
 .pill { display: inline-block; font-size: 12px; font-weight: 600; border: 1px solid currentColor; border-radius: 99px; padding: 2px 9px; white-space: nowrap; }
+.texgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 6px; max-height: 196px; overflow: auto; padding: 2px; }
+.tex { aspect-ratio: 1; padding: 0; border: 2px solid transparent; border-radius: 8px; overflow: hidden; cursor: pointer; background: var(--line); color: var(--muted); font-size: 12px; font-weight: 600; display: grid; place-items: center; }
+.tex img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tex[aria-pressed="true"] { border-color: var(--accent); }
 .pill.good { color: var(--good); } .pill.bad { color: var(--bad); } .pill.edit { color: var(--accent); }
 .btn { height: 40px; padding: 0 18px; border-radius: 10px; border: 1px solid var(--accent); background: transparent; color: var(--accent); font-weight: 600; cursor: pointer; }
 .btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 10%, transparent); }
@@ -377,6 +381,39 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
             <div class="padrow">
               <button class="btn small" id="hslResetOne">Reset this range</button>
               <button class="btn small" id="hslResetAll">Reset all HSL</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="sec" id="texSec">
+          <summary>Texture</summary>
+          <div class="blk">
+            <p class="info" id="texEmpty" hidden></p>
+            <div class="texgrid" id="texGrid"></div>
+            <div id="texCtl" class="blk" hidden>
+              <p class="info" id="texName" style="margin:0"></p>
+              <div>
+                <span class="lbl">Size of one tile (<span class="uu">cm</span>)</span>
+                <div class="sizerow">
+                  <input class="numin" id="tw" type="number" inputmode="decimal" step="any" aria-label="Texture size">
+                  <input id="twS" type="range" min="0" max="1000" aria-label="Texture size">
+                </div>
+              </div>
+              <div>
+                <span class="lbl">Tiling</span>
+                <div class="seg" id="texSeg">
+                  <button data-m="repeat" aria-pressed="true">Repeat</button>
+                  <button data-m="mirror" aria-pressed="false">Mirror</button>
+                </div>
+              </div>
+              <div>
+                <span class="lbl">Opacity (0–100)</span>
+                <div class="sizerow">
+                  <input class="numin" id="to" type="number" inputmode="decimal" min="0" max="100" step="1" aria-label="Texture opacity">
+                  <input id="toS" type="range" min="0" max="100" aria-label="Texture opacity">
+                </div>
+              </div>
+              <p class="info">The texture lies beneath the artwork and is multiplied with it. 100 = full strength, 0 = no texture.</p>
             </div>
           </div>
         </details>
@@ -738,6 +775,9 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
       '<div class="actions"><button class="btn small" id="stAdd">Add folder…</button><button class="btn small" id="stScan"' + (sc.running ? ' disabled' : '') + '>' + (sc.running ? 'Reading…' : 'Rescan now') + '</button></div>' +
       '<p class="info">' + num(s.counts.artworks) + ' designs in the library' + (s.counts.missing ? ', ' + num(s.counts.missing) + ' hidden because their file is missing (tags are kept)' : '') + '. New files are found each time the app starts, or press Rescan.</p>' +
       (errs.length ? '<details><summary class="info" style="cursor:pointer">' + errs.length + ' note(s) from the last scan</summary><p class="info">' + errs.slice(0, 20).map(esc).join('<br>') + '</p></details>' : '') + '</div>' +
+      '<div class="sgrp"><h3>Textures</h3><p class="info">A folder of texture images (sub-folders are read too). A texture can be multiplied under an artwork. Your files are never changed.</p>' +
+      (s.texture_dir ? '<div class="fl' + (s.texture_ok ? '' : ' bad') + '"><span>' + esc(s.texture_dir) + (s.texture_ok ? '' : '  (not found)') + '</span><button id="stTexRm" aria-label="Stop using this folder" title="Remove">✕</button></div><p class="info">' + num(s.texture_count) + ' textures found.</p>' : '<p class="info">No texture folder chosen yet.</p>') +
+      '<div class="actions"><button class="btn small" id="stTex">' + (s.texture_dir ? 'Change…' : 'Choose folder…') + '</button></div></div>' +
       '<div class="sgrp"><h3>Print files</h3><p class="info">Proofs and print files are saved here.</p><div class="fl"><span>' + esc(s.output_dir) + '</span></div><div class="actions"><button class="btn small" id="stOut">Change…</button><button class="btn small" id="stOutOpen">Show in Finder</button></div></div>' +
       '<div class="sgrp"><h3>Office network</h3><p class="info">Let your team open the app from their own computers while they are on the same Wi-Fi or office network. This computer must stay on with the app open.</p>' +
       '<label class="tog"><input type="checkbox" id="stShare"' + (s.share_network ? ' checked' : '') + '> Share on my office network</label>' +
@@ -750,6 +790,8 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     var on = function (id, fn) { var el = $(id); if (el) el.addEventListener('click', fn); };
     on('stAdd', addFolder);
     on('stScan', async function () { try { await api('api/scan', {}); watchScan(); openSettings(); } catch (e) { toast(e.message); } });
+    on('stTex', async function () { try { var p = (await api('api/pick-folder', {})).path; if (p) { await api('api/settings', { texture_dir: p }); openSettings(); } } catch (e) { toast(e.message); } });
+    on('stTexRm', async function () { try { await api('api/settings', { texture_dir: '' }); openSettings(); } catch (e) { toast(e.message); } });
     on('stOut', async function () { try { var p = (await api('api/pick-folder', {})).path; if (p) { await api('api/settings', { output_dir: p }); openSettings(); } } catch (e) { toast(e.message); } });
     on('stOutOpen', function () { api('api/open', { kind: 'output' }).catch(function (e) { toast(e.message); }); });
     on('stLogos', function () { api('api/open', { kind: 'logos' }).catch(function (e) { toast(e.message); }); });
@@ -874,6 +916,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     var r = S.r;
     r.art_w = clampArtW(r.art_w);
     var g = G();
+    if (r.texture) { var tr = texRange(); r.texture.scale = Math.min(tr.hi, Math.max(tr.lo, r.texture.scale)); }
     if (r.tile === 'off') {
       r.off_x = Math.min(Math.max(r.off_x, 0), g.aw - g.jw);
       r.off_y = Math.min(Math.max(r.off_y, 0), g.ah - g.jh);
@@ -888,7 +931,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     if (S.r.tile === 'off') { S.r.off_x = (g.aw - g.jw) / 2; S.r.off_y = (g.ah - g.jh) / 2; } else { S.r.off_x = 0; S.r.off_y = 0; }
   }
   function fresh() {
-    return { flip_h: false, flip_v: false, tile: 'off', art_w: 1, off_x: 0, off_y: 0, colour: neutralColour(), hsl: hslFresh() };
+    return { flip_h: false, flip_v: false, tile: 'off', art_w: 1, off_x: 0, off_y: 0, colour: neutralColour(), hsl: hslFresh(), texture: null };
   }
 
   // zoom: the point (fx, fy) of the view (0..1) stays where it is
@@ -915,7 +958,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     browseScroll = $('browse').scrollTop;
     var w = (store('wall') || '').split('x');
     S = { art: art, wallW: parseFloat(w[0]) || 180, wallH: parseFloat(w[1]) || 320, allowance: cfg.allowance,
-          dpi: parseInt(store('dpi'), 10) || cfg.dpi_options[0], logo: store('logo') || '', autoDpi: true,
+          dpi: store('dpi') === 'native' ? 'native' : (parseInt(store('dpi'), 10) || cfg.dpi_options[0]), texList: [], texImg: null, logo: store('logo') || '', autoDpi: true,
           r: fresh(), hslSel: -1, hslPick: false, hslMask: false, seams: false, compare: false, approved: false, img: new Image(), cssW: 0, cssH: 0 };
     if (S.logo && !cfg.logos.some(function (l) { return l.id === S.logo; })) S.logo = '';
     S.r.art_w = G().cover; centreArt();
@@ -927,7 +970,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     applyUnit();
     $('client').value = ''; $('who').value = store('name') || ''; $('approved').checked = false;
     $('seams').checked = false; $('proofRes').hidden = true;
-    buildColourUI();
+    buildColourUI(); loadTextures();
     $('panel').className = '';
     $('browse').hidden = true; $('setup').hidden = false;
     try { history.pushState({ v: 'setup' }, ''); } catch (e) {}
@@ -949,7 +992,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     fixRecipe();
     if (validWall()) {
       var g = G();
-      if (g.eff < S.dpi * 0.995) {
+      if (S.dpi !== 'native' && g.eff < S.dpi * 0.995) {
         // the chosen resolution is not possible at this size: move to the best one that is
         var opts = cfg.dpi_options.slice().sort(function (a, b) { return b - a; });
         var best = opts.filter(function (d) { return g.eff >= d * 0.995; })[0];
@@ -1115,7 +1158,30 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     } else if (!S.compare && (!colourIsNeutral(r.colour) || !hslNeutral(r.hsl))) {
       var id = ctx.getImageData(0, 0, W, H); colourize(id.data, r.colour, r.hsl); ctx.putImageData(id, 0, 0);
     }
+    if (!S.compare && r.texture && r.texture.opacity > 0 && S.texImg && S.texImg.complete && S.texImg.naturalWidth && !(S.hslMask && S.hslSel >= 0)) {
+      var tcv = texTile(r.texture, W, H, g);
+      ctx.save(); ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = r.texture.opacity / 100;
+      ctx.fillStyle = ctx.createPattern(tcv, 'repeat'); ctx.fillRect(0, 0, W, H); ctx.restore();
+    }
     drawOverlay(g); drawMini(g);
+  }
+  // one copy of the texture at its size on the wall (two by two when mirrored), cached until something changes
+  function texTile(t, W, H, g) {
+    var im = S.texImg, uw = Math.max(1, Math.round(t.scale * W / g.jw)), uh = Math.max(1, Math.round(t.scale * im.naturalHeight / im.naturalWidth * H / g.jh));
+    var key = t.id + '|' + uw + 'x' + uh + '|' + t.mode;
+    if (S.texKey === key) return S.texCv;
+    var u = document.createElement('canvas'); u.width = uw; u.height = uh;
+    var uc = u.getContext('2d'); uc.imageSmoothingQuality = 'high'; uc.drawImage(im, 0, 0, uw, uh);
+    var out = u;
+    if (t.mode === 'mirror') {
+      out = document.createElement('canvas'); out.width = 2 * uw; out.height = 2 * uh;
+      var mc = out.getContext('2d');
+      mc.drawImage(u, 0, 0);
+      mc.save(); mc.scale(-1, 1); mc.drawImage(u, -2 * uw, 0); mc.restore();
+      mc.save(); mc.scale(1, -1); mc.drawImage(u, 0, -2 * uh); mc.restore();
+      mc.save(); mc.scale(-1, -1); mc.drawImage(u, -2 * uw, -2 * uh); mc.restore();
+    }
+    S.texKey = key; S.texCv = out; return out;
   }
   function drawOverlay(g) {
     var o = $('ovl'), r = S.r, w = S.cssW, h = S.cssH, dpr = window.devicePixelRatio || 1;
@@ -1163,8 +1229,11 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
       var v = r.colour[it[0]]; if (!v) return;
       o.push(it[1].replace(/ \(.*\)/, '') + ' ' + (it[2] < 0 ? (v > 0 ? '+' : '') + v : v + '%'));
     }); });
-    return o.concat(describeHsl(r.hsl));
+    o = o.concat(describeHsl(r.hsl));
+    if (r.texture && r.texture.opacity > 0) o.push('Texture "' + r.texture.name + '" multiplied under the artwork, ' + fuu(r.texture.scale) + ' wide, ' + (r.texture.mode === 'mirror' ? 'mirrored' : 'repeated') + ', opacity ' + fmt(r.texture.opacity) + '%');
+    return o;
   }
+  function curDpi(g) { return S.dpi === 'native' ? Math.min(600, Math.floor(g.eff * 100) / 100) : S.dpi; }
   function setIfIdle(id, v) { var el = $(id); if (document.activeElement !== el) el.value = v; }
   function sliderPos(v, lo, hi) { return Math.round((v - lo) / (hi - lo) * 1000); }
   function refreshUI() {
@@ -1185,11 +1254,13 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
       var p = PRESETS[+b.dataset.p][1], same = COLOUR_KEYS.every(function (k) { return (r.colour[k] || 0) === (p[k] || 0); });
       b.setAttribute('aria-pressed', same);
     });
-    $('cmp').disabled = colourIsNeutral(r.colour) && hslNeutral(r.hsl);
-    refreshHsl();
+    $('cmp').disabled = colourIsNeutral(r.colour) && hslNeutral(r.hsl) && !r.texture;
+    refreshHsl(); refreshTex();
     $('seams').parentNode.hidden = r.tile === 'off';
     if (!ok) { $('rd').innerHTML = ''; $('bProof').disabled = true; $('bPrint').disabled = true; return; }
-    var g = G(), good = g.eff >= S.dpi * 0.995;
+    var g = G(), nat = S.dpi === 'native', dpiNow = curDpi(g);
+    var good = nat ? g.eff >= cfg.min_dpi : g.eff >= S.dpi * 0.995;
+    var bigPx = Math.round(g.jw / 2.54 * dpiNow) * Math.round(g.jh / 2.54 * dpiNow), tooBig = bigPx > 600e6;
     // size controls
     var tiled = r.tile !== 'off';
     $('awLbl').textContent = tiled ? 'Repeat width' : 'Artwork width on the wall';
@@ -1205,28 +1276,80 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     // readout
     $('rd').innerHTML = '<span>' + fu(g.jw) + ' × ' + fuu(g.jh) + '</span><span class="dim">artwork ' + fuu(r.art_w) + ' wide</span>' +
       (edits.length ? '<span class="pill edit">Edited</span>' : '') +
-      '<span class="pill ' + (good ? 'good' : 'bad') + '">' + (good ? '✓ ' + S.dpi + ' dpi' : 'Max ' + Math.floor(g.eff) + ' dpi') + '</span>';
+      '<span class="pill ' + (good ? 'good' : 'bad') + '">' + (good ? '✓ ' + (nat ? Math.floor(g.eff) + ' dpi (image default)' : S.dpi + ' dpi') : 'Max ' + Math.floor(g.eff) + ' dpi') + '</span>';
     // resolution
     $('dpiChips').innerHTML = cfg.dpi_options.map(function (d) {
       var can = g.eff >= d * 0.995;
       return '<button class="chip" data-d="' + d + '" aria-pressed="' + (S.dpi === d) + '" aria-disabled="' + (!can) + '">' + d + ' dpi</button>';
-    }).join('');
-    var tw = Math.round(g.jw / 2.54 * S.dpi), th = Math.round(g.jh / 2.54 * S.dpi);
-    $('resInfo').className = 'info' + (good ? '' : ' bad');
-    $('resInfo').textContent = good
+    }).join('') + '<button class="chip" data-d="native" aria-pressed="' + nat + '" title="Print at the artwork\'s own resolution at this size, with no stretching or squeezing">Image default</button>';
+    var tw = Math.round(g.jw / 2.54 * dpiNow), th = Math.round(g.jh / 2.54 * dpiNow);
+    $('resInfo').className = 'info' + (good && !tooBig ? '' : ' bad');
+    $('resInfo').textContent = tooBig ? 'That print file would be ' + num(bigPx / 1e6) + ' megapixels, which is too big to make safely. Choose a lower resolution, or make the artwork smaller on the wall.'
+      : good && nat ? 'Image default: ' + (Math.floor(g.eff * 100) / 100) + ' dpi, the artwork\'s own resolution at this size. Print file ' + num(tw) + ' × ' + num(th) + ' px, no resampling.'
+      : good
       ? 'Print file ' + num(tw) + ' × ' + num(th) + ' px. At this size the artwork gives up to ' + Math.floor(g.eff) + ' dpi.'
       : 'Not enough pixels for ' + S.dpi + ' dpi at this size: the artwork gives about ' + Math.floor(g.eff) + ' dpi. Lower the resolution, make the artwork smaller on the wall, use a smaller wall or choose another design.';
     var lg = [{ id: '', name: 'None' }].concat(cfg.logos);
     $('logoChips').innerHTML = lg.map(function (l) { return '<button class="chip" data-l="' + esc(l.id) + '" aria-pressed="' + (S.logo === l.id) + '">' + esc(l.name) + '</button>'; }).join('');
     $('logoWrap').hidden = !cfg.logos.length;
     $('bProof').disabled = false;
-    $('bPrint').disabled = !(good && S.dpi >= cfg.min_dpi && S.approved);
+    $('bPrint').disabled = !(good && !tooBig && dpiNow >= cfg.min_dpi && S.approved);
   }
+
+  /* ------------------------------------------------ texture layer */
+  function texInfo(id) { return (S.texList || []).filter(function (t) { return t.id === id; })[0]; }
+  function texRange() {
+    var g = G(), t = S.r.texture && texInfo(S.r.texture.id), top = 4000;
+    if (t && validWall()) top = Math.sqrt(4 * g.jw * g.jh * t.w / t.h);
+    return { lo: 2, hi: Math.max(2, top) };
+  }
+  async function loadTextures() {
+    if (DEMO) return;
+    try { var list = await api('api/textures'); if (S) { S.texList = list; refreshTex(); } } catch (e) {}
+  }
+  function pickTexture(id) {
+    if (!id) { S.r.texture = null; S.texImg = null; S.texKey = ''; update(); return; }
+    var t = texInfo(id); if (!t) return;
+    S.r.texture = { id: t.id, name: t.name, scale: S.r.texture ? S.r.texture.scale : 50, mode: S.r.texture ? S.r.texture.mode : 'repeat', opacity: S.r.texture ? S.r.texture.opacity : 100 };
+    S.texKey = ''; S.texImg = new Image(); S.texImg.onload = function () { schedule(); }; S.texImg.src = t.preview;
+    update();
+  }
+  function refreshTex() {
+    if (!S) return;
+    var list = S.texList || [], t = S.r.texture, has = list.length > 0;
+    $('texEmpty').hidden = has;
+    $('texEmpty').textContent = OWNER ? 'No textures yet. Choose your texture folder in Settings (the gear at the top), then open this artwork again.' : 'No textures yet. Ask the owner to choose a texture folder in Settings.';
+    $('texGrid').hidden = !has;
+    if (has && $('texGrid').dataset.n !== String(list.length) + '|' + (t ? t.id : '')) {
+      $('texGrid').dataset.n = String(list.length) + '|' + (t ? t.id : '');
+      $('texGrid').innerHTML = '<button class="tex" data-id="" aria-pressed="' + (!t) + '" title="No texture">None</button>' + list.map(function (x) {
+        return '<button class="tex" data-id="' + esc(x.id) + '" aria-pressed="' + (!!t && t.id === x.id) + '" title="' + esc((x.folder ? x.folder + ' / ' : '') + x.name) + '"><img loading="lazy" src="' + esc(x.thumb) + '" alt="' + esc(x.name) + '"></button>';
+      }).join('');
+    }
+    $('texGrid').querySelectorAll('.tex').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.id === (t ? t.id : '')); });
+    $('texCtl').hidden = !t;
+    if (!t) return;
+    var rg = texRange();
+    $('texName').textContent = t.name;
+    setIfIdle('tw', fu(t.scale)); setIfIdle('twS', sliderPos(t.scale, rg.lo, rg.hi));
+    setIfIdle('to', fmt(t.opacity)); setIfIdle('toS', t.opacity);
+    $('texSeg').querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.m === t.mode); });
+  }
+  $('texGrid').addEventListener('click', function (e) { var b = e.target.closest('.tex'); if (b) pickTexture(b.dataset.id); });
+  $('tw').addEventListener('input', function () { var v = fromU(parseFloat(this.value)); if (isFinite(v) && v > 0 && S.r.texture) { S.r.texture.scale = v; update(); } });
+  $('tw').addEventListener('change', function () { update(); $('tw').value = fu(S.r.texture.scale); });
+  $('twS').addEventListener('input', function () { var rg = texRange(); S.r.texture.scale = rg.lo + (rg.hi - rg.lo) * (+this.value) / 1000; update(); interactive(); });
+  $('texSeg').addEventListener('click', function (e) { var b = e.target.closest('button'); if (!b || !S.r.texture) return; S.r.texture.mode = b.dataset.m; S.texKey = ''; update(); });
+  function setOpacity(v) { if (!S.r.texture || !isFinite(v)) return; S.r.texture.opacity = Math.min(100, Math.max(0, Math.round(v))); update(); interactive(); }
+  $('to').addEventListener('input', function () { setOpacity(parseFloat(this.value)); });
+  $('to').addEventListener('change', function () { update(); $('to').value = fmt(S.r.texture.opacity); });
+  $('toS').addEventListener('input', function () { setOpacity(+this.value); });
 
   /* ------------------------------------------------ units */
   function applyUnit() {
     document.querySelectorAll('.uu').forEach(function (e) { e.textContent = UNIT; });
     $('corner').textContent = UNIT;
+    $('tw').setAttribute('aria-label', 'Texture size in ' + (UNIT === 'in' ? 'inches' : 'centimetres'));
     $('rw').setAttribute('aria-label', 'Repeat width in ' + (UNIT === 'in' ? 'inches' : 'centimetres'));
     $('ww').min = $('wh').min = fmt(toU(20)); $('al').min = 0;
     $('unitSeg').querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.u === UNIT); });
@@ -1234,7 +1357,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
   }
   $('unitSeg').addEventListener('click', function (e) {
     var b = e.target.closest('button'); if (!b || b.dataset.u === UNIT) return;
-    UNIT = b.dataset.u; store('unit', UNIT); applyUnit(); if (S) { $('aw').value = fu(S.r.art_w); $('rw').value = fu(S.r.art_w); update(); }
+    UNIT = b.dataset.u; store('unit', UNIT); applyUnit(); if (S) { $('aw').value = fu(S.r.art_w); $('rw').value = fu(S.r.art_w); if (S.r.texture) $('tw').value = fu(S.r.texture.scale); update(); }
   });
   applyUnit();
 
@@ -1447,7 +1570,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
   $('resetColour').addEventListener('click', function () { S.r.colour = neutralColour(); update(); });
   $('dpiChips').addEventListener('click', function (e) {
     var b = e.target.closest('.chip'); if (!b) return;
-    S.dpi = parseInt(b.dataset.d, 10); store('dpi', S.dpi); update();
+    S.dpi = b.dataset.d === 'native' ? 'native' : parseInt(b.dataset.d, 10); store('dpi', S.dpi); update();
   });
   $('logoChips').addEventListener('click', function (e) {
     var b = e.target.closest('.chip'); if (!b) return; S.logo = b.dataset.l; store('logo', S.logo); update();
@@ -1523,7 +1646,8 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
 
   /* ------------------------------------------------ proof and print */
   function recipePayload() {
-    var r = S.r; return { flip_h: r.flip_h, flip_v: r.flip_v, tile: r.tile, art_w: r.art_w, off_x: r.off_x, off_y: r.off_y, colour: r.colour, hsl: r.hsl };
+    var r = S.r; return { flip_h: r.flip_h, flip_v: r.flip_v, tile: r.tile, art_w: r.art_w, off_x: r.off_x, off_y: r.off_y, colour: r.colour, hsl: r.hsl,
+             texture: r.texture ? { id: r.texture.id, scale: r.texture.scale, mode: r.texture.mode, opacity: r.texture.opacity } : null };
   }
   function payload() {
     return { artwork_id: S.art.id, wall_w: S.wallW, wall_h: S.wallH, allowance: S.allowance, dpi: S.dpi, logo: S.logo, unit: UNIT,
@@ -1552,11 +1676,11 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
   });
 
   $('bPrint').addEventListener('click', function () {
-    var g = G(), a = S.art, r = S.r, tw = Math.round(g.jw / 2.54 * S.dpi), th = Math.round(g.jh / 2.54 * S.dpi), edits = listEdits();
+    var g = G(), a = S.art, r = S.r, dp = curDpi(g), tw = Math.round(g.jw / 2.54 * dp), th = Math.round(g.jh / 2.54 * dp), edits = listEdits();
     var rows = [['Design', a.name + (a.material ? ' (' + a.material + ')' : '')],
       ['Wall', fu(S.wallW) + ' × ' + fu(S.wallH) + ' ' + UNIT + ' + ' + fuu(S.allowance)],
       ['Print size', fu(g.jw) + ' × ' + fuu(g.jh) + (UNIT === 'in' ? ' (' + fmt(g.jw) + ' × ' + fmt(g.jh) + ' cm)' : '')],
-      ['Resolution', S.dpi + ' dpi (' + num(tw) + ' × ' + num(th) + ' px)'],
+      ['Resolution', (S.dpi === 'native' ? 'Image default, ' + fmt(Math.round(dp * 100) / 100) : dp) + ' dpi (' + num(tw) + ' × ' + num(th) + ' px)'],
       ['Artwork', fu(r.art_w) + ' × ' + fuu(g.ah) + ' on the wall'],
       ['Edits', edits.length ? edits.join('; ') : 'None (original artwork)'],
       ['Proof', 'Approved by the client']];

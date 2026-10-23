@@ -29,8 +29,9 @@ from PIL import Image, ImageDraw, ImageFont
 import core
 import library
 import share
+import textures
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 APP = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))   # where the bundled web/ folder lives
 
 
@@ -49,6 +50,7 @@ def data_dir() -> Path:
 
 DEFAULTS = {
     "folders": [],                  # the folders with your high-res designs (sub-folders are read too)
+    "texture_dir": "",              # a folder of textures that can be multiplied under an artwork
     "output_dir": "",               # where proofs and print files go (empty = Documents/Emporium Print Files)
     "share_network": False,         # let other computers on your office network open the app
     "access_pin": "",               # required from other computers when sharing is on
@@ -66,11 +68,13 @@ CFG = {}
 LIB = None
 OUT = None
 LOGO_DIR = None
+TEX = None
 OWNER_TOKEN = secrets.token_hex(16)   # proves a request comes from the app window itself
 TOKENS = set()                        # PIN sessions of people on the office network
 JOBQ = queue.Queue()
 LOCK = threading.Lock()
 PICKER = None                         # set by the app window: a function that asks for a folder
+MAX_PRINT_PIXELS = 600_000_000
 RUNTIME = {"port": 8080, "host": "127.0.0.1"}
 LISTENER = None
 
@@ -106,11 +110,13 @@ def apply_config():
     global OUT
     OUT = Path(CFG["output_dir"]).expanduser() if CFG.get("output_dir") else default_output()
     OUT.mkdir(parents=True, exist_ok=True)
+    if TEX is not None:
+        TEX.set_folder(CFG.get("texture_dir") or "")
 
 
 def init(data=None):
     """Load settings and open the catalogue. Call once before starting the server."""
-    global DATA, CFG, LIB, LOGO_DIR
+    global DATA, CFG, LIB, LOGO_DIR, TEX
     if data:
         DATA = Path(data)
     DATA.mkdir(parents=True, exist_ok=True)
@@ -118,6 +124,7 @@ def init(data=None):
     LOGO_DIR = DATA / "logos"
     LOGO_DIR.mkdir(exist_ok=True)
     LIB = library.Library(DATA)
+    TEX = textures.Textures(DATA)
     apply_config()
 
 
@@ -161,6 +168,12 @@ def logo_path(logo_id):
     return None
 
 
+def texture_file(recipe):
+    t = recipe.get("texture")
+    found = TEX.lookup(t["id"]) if t else None
+    return found[0] if found else None
+
+
 def preview_path(art_id):
     return LIB.cache / "previews" / f"{art_id}.jpg"
 
@@ -170,19 +183,21 @@ def process_job(job):
     if not art:
         raise ValueError("The design is no longer in the library.")
     jw, jh = core.job_size(job["wall_w"], job["wall_h"], job["allowance"])
-    recipe = core.check_recipe(job["recipe"], art["w"], art["h"], jw, jh)
+    recipe = core.check_recipe(job["recipe"], art["w"], art["h"], jw, jh, TEX.lookup)
+    tex_path = texture_file(recipe)
     unit = job.get("unit", "cm")
     edits = core.describe_edits(recipe, unit)
     dpi = job["dpi"]
     day = job["created"][:10]
     stem = core.safe(art["name"]) + (f"_{core.safe(art['material'])}" if art["material"] else "") + ("_edited" if edits else "")
     size_tag = f"{core.fmt(jw)}x{core.fmt(jh)}cm"
-    folder = OUT / day / f"{job['id']}_{stem}_{size_tag}_{dpi}dpi"
+    dpi_tag = f"{dpi:g}dpi"
+    folder = OUT / day / f"{job['id']}_{stem}_{size_tag}_{dpi_tag}"
     folder.mkdir(parents=True, exist_ok=True)
 
     job.update(status="running", progress="Preparing the proof")
     save_job(job)
-    region = core.proof_region(preview_path(art["id"]), recipe, jw, jh)
+    region = core.proof_region(preview_path(art["id"]), recipe, jw, jh, tex_path)
     proof = core.make_proof_pdf(region, art["name"], art["material"], jw, jh, logo_path(job.get("logo")), edits, unit)
     proof_path = folder / f"{stem}_{size_tag}_proof.pdf"
     proof_path.write_bytes(proof)
@@ -197,8 +212,8 @@ def process_job(job):
             job["progress"] = f"Making the print file ({int(f * 100)}%)"
             save_job(job)
 
-    tiff_path = folder / f"{stem}_{size_tag}_{dpi}dpi_print.tiff"
-    px_w, px_h = core.make_print_tiff(Path(art["path"]), recipe, jw, jh, dpi, tiff_path, progress)
+    tiff_path = folder / f"{stem}_{size_tag}_{dpi_tag}_print.tiff"
+    px_w, px_h = core.make_print_tiff(Path(art["path"]), recipe, jw, jh, dpi, tiff_path, progress, tex_path)
 
     sheet = [
         f"Job {job['id']}",
@@ -209,7 +224,7 @@ def process_job(job):
         f"Wall: {core.fmt(job['wall_w'])} x {core.fmt(job['wall_h'])} cm + {core.fmt(job['allowance'])} cm allowance"
         f" = {core.fmt(jw)} x {core.fmt(jh)} cm"
         + (f" ({core.dim(jw, 'in')} x {core.dim(jh, 'in')})" if unit == "in" else ""),
-        f"Print file: {px_w} x {px_h} px at {dpi} dpi",
+        f"Print file: {px_w} x {px_h} px at {dpi:g} dpi" + (" (the artwork's own resolution at this size)" if job.get("dpi_mode") == "native" else ""),
         f"Artwork width on the wall: {core.fmt(round(recipe['art_w'], 1))} cm"
         + (f" ({core.dim(recipe['art_w'], 'in')})" if unit == "in" else "") + f", position {core.fmt(round(recipe['off_x'], 1))} / "
         f"{core.fmt(round(recipe['off_y'], 1))} cm from the artwork's top-left (master {art['w']} x {art['h']} px)",
@@ -325,7 +340,8 @@ def settings_view():
         folders.append({"path": str(p), "exists": p.is_dir()})
     ip = lan_ip()
     return {
-        "folders": folders, "output_dir": str(OUT), "share_network": bool(CFG["share_network"]),
+        "folders": folders, "texture_dir": CFG.get("texture_dir") or "", "texture_count": len(TEX.items),
+        "texture_ok": bool(CFG.get("texture_dir")) and Path(CFG["texture_dir"]).is_dir(), "output_dir": str(OUT), "share_network": bool(CFG["share_network"]),
         "sharing_active": sharing(), "pin_set": bool(CFG["access_pin"]), "port": RUNTIME["port"],
         "share_url": f"http://{ip}:{RUNTIME['port']}", "logo_dir": str(LOGO_DIR), "data_dir": str(DATA),
         "version": VERSION, "counts": LIB.counts(), "scan": dict(LIB.scan_state),
@@ -433,7 +449,7 @@ class Handler(BaseHTTPRequestHandler):
             if role:
                 cfg.update(allowance=CFG["allowance_cm"], dpi_options=CFG["dpi_options"], min_dpi=CFG["min_dpi"],
                            logos=library.logos(LOGO_DIR), owner=role == "owner", artworks=LIB.counts()["artworks"],
-                           scanning=LIB.scan_state["running"])
+                           scanning=LIB.scan_state["running"], textures=len(TEX.items))
             return self.send_json(cfg)
         if path.startswith("/dl/"):
             return self.download(path)
@@ -441,6 +457,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "Not signed in"}, 401)
         if path == "/api/catalog":
             return self.send_json(LIB.catalog(), extra={"Cache-Control": "no-cache"})
+        if path == "/api/textures":
+            TEX.refresh()
+            return self.send_json(TEX.listing(), extra={"Cache-Control": "no-cache"})
         if path == "/api/jobs":
             return self.send_json(recent_jobs())
         if path.startswith("/api/jobs/"):
@@ -452,6 +471,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(settings_view() if path == "/api/settings" else dict(LIB.scan_state, counts=LIB.counts()))
         if path.startswith("/media/"):
             parts = path.split("/")
+            if len(parts) == 4 and parts[2] == "textures":
+                data = TEX.media(parts[3])
+                if data:
+                    return self.send_bytes(data, "image/jpeg", extra={"Cache-Control": "private, max-age=60"})
             if len(parts) == 4 and parts[2] in ("thumbs", "previews", "logos"):
                 base = LOGO_DIR if parts[2] == "logos" else LIB.cache / parts[2]
                 f = (base / parts[3]).resolve()
@@ -586,6 +609,14 @@ class Handler(BaseHTTPRequestHandler):
             CFG["folders"] = folders
         else:
             changed = False
+        if "texture_dir" in data:
+            td = str(data["texture_dir"] or "").strip()
+            if td:
+                p = Path(td).expanduser()
+                if not p.is_dir():
+                    raise ValueError(f"I can't find the folder {p}")
+                td = str(p)
+            CFG["texture_dir"] = td
         if "output_dir" in data and data["output_dir"]:
             p = Path(str(data["output_dir"])).expanduser()
             try:
@@ -640,12 +671,12 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("That design is not in the library.")
         p = core.check_params(data)
         jw, jh = core.job_size(p["wall_w"], p["wall_h"], p["allowance"])
-        recipe = core.check_recipe(data.get("recipe"), art["w"], art["h"], jw, jh)
+        recipe = core.check_recipe(data.get("recipe"), art["w"], art["h"], jw, jh, TEX.lookup)
         return art, p, jw, jh, recipe
 
     def proof(self, data, role):
         art, p, jw, jh, recipe = self.common(data)
-        region = core.proof_region(preview_path(art["id"]), recipe, jw, jh)
+        region = core.proof_region(preview_path(art["id"]), recipe, jw, jh, texture_file(recipe))
         pdf = core.make_proof_pdf(region, art["name"], art["material"], jw, jh, logo_path(data.get("logo")),
                                   core.describe_edits(recipe, p["unit"]), p["unit"])
         stem = core.safe(art["name"]) + (f"_{core.safe(art['material'])}" if art["material"] else "")
@@ -657,14 +688,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def print_job(self, data):
         art, p, jw, jh, recipe = self.common(data)
+        native = bool(p.get("dpi_native"))
+        sup = core.eff_dpi(art["w"], recipe["art_w"])
         dpi = p.get("dpi")
+        if native:   # "Image default": print at the artwork's own resolution, so nothing is stretched or squeezed
+            dpi = min(600.0, int(sup * 100) / 100.0)
         if not dpi:
             raise ValueError("Choose a print resolution (dpi).")
         if not data.get("approved"):
             raise ValueError("Tick \"Client approved the proof\" before sending to print.")
         if dpi < CFG["min_dpi"]:
             raise ValueError(f"The lowest allowed resolution is {CFG['min_dpi']} dpi.")
-        sup = core.eff_dpi(art["w"], recipe["art_w"])
+        tw, th = core.target_px(jw, jh, dpi)
+        if tw * th > MAX_PRINT_PIXELS:
+            raise ValueError(f"That print file would be {tw * th / 1e6:,.0f} megapixels, which is too big to make safely. "
+                             "Choose a lower resolution, or make the artwork smaller on the wall.")
         if sup < dpi * 0.995:
             if sup < CFG["min_dpi"]:
                 raise ValueError(f"The artwork does not have enough pixels at this size (about {int(sup)} dpi). "
@@ -674,7 +712,7 @@ class Handler(BaseHTTPRequestHandler):
         job = create_job({
             "artwork_id": art["id"], "artwork_name": art["name"], "material": art["material"],
             "wall_w": p["wall_w"], "wall_h": p["wall_h"], "allowance": p["allowance"],
-            "recipe": recipe, "unit": p["unit"], "dpi": dpi, "logo": data.get("logo") or "",
+            "recipe": recipe, "unit": p["unit"], "dpi": dpi, "dpi_mode": "native" if native else "fixed", "logo": data.get("logo") or "",
             "created_by": str(data.get("created_by", ""))[:60], "client_ref": str(data.get("client_ref", ""))[:120],
         })
         JOBQ.put(job["id"])

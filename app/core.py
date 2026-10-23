@@ -10,6 +10,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 import render
+import textures as textures_mod
 
 Image.MAX_IMAGE_PIXELS = None
 A4_W, A4_H = 595.44, 841.92  # points
@@ -51,7 +52,9 @@ def check_params(p: dict):
     if not (0 <= out["allowance"] <= 100):
         raise ValueError("Allowance should be between 0 and 100 cm.")
     out["unit"] = "in" if p.get("unit") == "in" else "cm"
-    if "dpi" in p and p["dpi"] not in (None, ""):
+    if p.get("dpi") == "native":        # "Image default": the artwork's own resolution at this size
+        out["dpi_native"] = True
+    elif "dpi" in p and p["dpi"] not in (None, ""):
         try:
             out["dpi"] = int(p["dpi"])
         except (TypeError, ValueError):
@@ -81,8 +84,37 @@ def max_repeat_w(mw, mh, jw, jh):
     return min(cover_w(mw, mh, jw, jh), (3 * jw * jh * mw / mh) ** 0.5)
 
 
-def check_recipe(r, mw, mh, jw, jh):
-    """Validate and normalise an edit recipe. Raises ValueError with a message fit for a salesperson."""
+TEXTURE_MODES = ("repeat", "mirror")
+TEXTURE_MIN_CM = 2.0
+
+
+def check_texture(t, lookup, jw, jh):
+    """Validate the texture layer. `lookup(id)` gives (path, name, w, h) or None. Returns None when there is no texture."""
+    if not t or not t.get("id"):
+        return None
+    found = lookup(str(t["id"])) if lookup else None
+    if not found:
+        raise ValueError("That texture is not in the texture folder any more.")
+    _, name, tw, th = found
+    try:
+        mode = t.get("mode", "repeat")
+        scale = float(t.get("scale") or 50)
+        opacity = float(t.get("opacity", 100))
+    except (TypeError, ValueError):
+        raise ValueError("The texture settings are not valid.")
+    if mode not in TEXTURE_MODES:
+        raise ValueError("Unknown texture tiling mode.")
+    if scale != scale or opacity != opacity:
+        raise ValueError("The texture settings are not valid.")
+    # one copy of the texture stays within 4x the wall area, so memory stays bounded
+    top = (4 * jw * jh * tw / th) ** 0.5
+    scale = min(max(scale, TEXTURE_MIN_CM), max(TEXTURE_MIN_CM, top))
+    return {"id": str(t["id"]), "name": name, "scale": scale, "mode": mode, "opacity": min(100.0, max(0.0, opacity))}
+
+
+def check_recipe(r, mw, mh, jw, jh, textures=None):
+    """Validate and normalise an edit recipe. Raises ValueError with a message fit for a salesperson.
+    `textures` is a lookup function for the texture library (see check_texture)."""
     r = r or {}
     tile = r.get("tile", "off")
     if tile not in TILE_MODES:
@@ -110,6 +142,7 @@ def check_recipe(r, mw, mh, jw, jh):
                 raise ValueError("Colour settings are not valid.")
             colour[k] = min(hi, max(lo, v))
         hsl = render.check_hsl(r.get("hsl"))
+        texture = check_texture(r.get("texture"), textures, jw, jh)
     except (TypeError, ValueError) as e:
         if isinstance(e, ValueError) and str(e) and not str(e).startswith("could not convert"):
             raise
@@ -122,7 +155,7 @@ def check_recipe(r, mw, mh, jw, jh):
         period_y = ah * (2 if tile == "mirror" else 1)
         off_x, off_y = off_x % period_x, off_y % period_y
     return {"flip_h": bool(r.get("flip_h")), "flip_v": bool(r.get("flip_v")), "tile": tile,
-            "art_w": art_w, "off_x": off_x, "off_y": off_y, "colour": colour, "hsl": hsl}
+            "art_w": art_w, "off_x": off_x, "off_y": off_y, "colour": colour, "hsl": hsl, "texture": texture}
 
 
 COLOUR_LABEL = dict(brightness="Brightness", contrast="Contrast", saturation="Saturation", vibrance="Vibrance",
@@ -175,6 +208,10 @@ def describe_edits(r, unit="cm"):
         if v:
             out.append(f"{label} {v:+g}" if k not in ("bw", "sepia", "fade") else f"{label} {v:g}%")
     out.extend(describe_hsl(r["hsl"]))
+    t = r.get("texture")
+    if t and t["opacity"] > 0:
+        out.append(f"Texture \"{t['name']}\" multiplied under the artwork, {dim(t['scale'], unit)} wide, "
+                   f"{'mirrored' if t['mode'] == 'mirror' else 'repeated'}, opacity {t['opacity']:g}%")
     return out
 
 
@@ -234,16 +271,17 @@ def make_proof_pdf(region, design, material, jw, jh, logo_path=None, edits=None,
     return buf.getvalue()
 
 
-def proof_region(preview_path: Path, recipe, jw, jh):
+def proof_region(preview_path: Path, recipe, jw, jh, texture_path=None):
     """The wall picture for the proof, made from the preview image with the same engine as the print file."""
     long_side = 1600
     k = long_side / max(jw, jh)
     with Image.open(preview_path) as pv:
         pv = pv.convert("RGB")
-        return render.render(pv, recipe, jw, jh, max(1, round(jw * k)), max(1, round(jh * k)))
+        tex = textures_mod.load(texture_path, 1600) if texture_path and recipe.get("texture") else None
+        return render.render(pv, recipe, jw, jh, max(1, round(jw * k)), max(1, round(jh * k)), texture=tex)
 
 
-def make_print_tiff(master_path: Path, recipe, jw, jh, dpi, out_path: Path, progress=None):
+def make_print_tiff(master_path: Path, recipe, jw, jh, dpi, out_path: Path, progress=None, texture_path=None):
     """Render the master through the recipe at the exact print size and write an LZW TIFF."""
     tw, th = target_px(jw, jh, dpi)
     with Image.open(master_path) as im:
@@ -256,7 +294,8 @@ def make_print_tiff(master_path: Path, recipe, jw, jh, dpi, out_path: Path, prog
         elif im.mode != "RGB":
             im = im.convert("RGB")
             icc = None  # profile no longer matches after conversion
-        out = render.render(im, recipe, jw, jh, tw, th, progress=progress)
+        tex = textures_mod.load(texture_path) if texture_path and recipe.get("texture") else None
+        out = render.render(im, recipe, jw, jh, tw, th, progress=progress, texture=tex)
     del im
     kwargs = {"format": "TIFF", "compression": "tiff_lzw", "dpi": (dpi, dpi)}
     if icc:

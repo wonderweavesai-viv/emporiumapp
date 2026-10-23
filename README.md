@@ -21,7 +21,12 @@ Your original design files are only ever read, never changed.
   **Select** lets you tag many designs at once.
 - Pick a design, enter the wall size, adjust, make a **Proof PDF** (opens in Preview), tick "Client approved", **Send to print**.
   The TIFF and proof are saved in your print folder (default: Documents/Emporium Print Files), with a job sheet.
-- **Settings** (gear icon): design folders, print folder, office network sharing, logos for proofs.
+- **Texture** (panel on the right): choose a texture folder in Settings, then pick a texture. It is placed under the artwork
+  and blended with **Multiply**. Set its size on the wall, **Repeat** or **Mirror** tiling, and opacity 0-100
+  (100 = full strength, 0 = none). It shows in the preview, the proof and the print file, and is listed on the job sheet.
+- **Resolution**: 144 dpi, 96 dpi, or **Image default**, which prints at the artwork's own resolution at the chosen size
+  (no stretching or squeezing of pixels).
+- **Settings** (gear icon): design folders, texture folder, print folder, office network sharing, logos for proofs.
 
 New files you add to your design folders are found the next time the app starts, or press **Rescan now**.
 If you rename or move a file, the app recognises it and keeps its tags.

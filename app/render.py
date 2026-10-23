@@ -236,7 +236,33 @@ def _clamp(v, lo, hi):
     return min(hi, max(lo, v))
 
 
-def render(src, recipe, jw, jh, out_w, out_h, strip_px=4_000_000, progress=None, colour=True):
+def _tile_index(start, n, size, mirror):
+    i = start + np.arange(n)
+    if mirror:
+        m = i % (2 * size)
+        return np.where(m < size, m, 2 * size - 1 - m)
+    return i % size
+
+
+def texture_unit(tex_img, spec, pxx, pxy):
+    """One copy of the texture at the size it has on the wall, as a numpy array."""
+    uw = max(1, round(spec["scale"] * pxx))
+    uh = max(1, round(spec["scale"] * tex_img.height / tex_img.width * pxy))
+    return np.asarray(tex_img.resize((uw, uh), Image.LANCZOS))
+
+
+def multiply_texture(strip, unit, cols, spec, y0, y1):
+    """Multiply the texture over a strip of the wall. Opacity 0 = no change, 100 = full multiply."""
+    uh = unit.shape[0]
+    rows = _tile_index(y0, y1 - y0, uh, spec["mode"] == "mirror")
+    t = unit[rows[:, None], cols[None, :]].astype(np.float32) / 255.0
+    k = spec["opacity"] / 100.0
+    a = np.asarray(strip, dtype=np.float32)
+    a *= 1.0 - k * (1.0 - t)
+    return Image.fromarray(np.rint(a).clip(0, 255).astype(np.uint8), "RGB")
+
+
+def render(src, recipe, jw, jh, out_w, out_h, strip_px=4_000_000, progress=None, colour=True, texture=None):
     """Render the wall (jw x jh cm) from the image `src` into an out_w x out_h RGB picture.
 
     The picture is built in horizontal strips. Each strip is resampled straight from the source with Pillow's
@@ -266,18 +292,17 @@ def render(src, recipe, jw, jh, out_w, out_h, strip_px=4_000_000, progress=None,
         unit = np.asarray(src.resize((uw, uh), Image.LANCZOS))
         ox, oy = round(recipe["off_x"] * pxx), round(recipe["off_y"] * pxy)
 
-        def index(start, n, size):
-            i = start + np.arange(n)
-            if tile == "mirror":
-                m = i % (2 * size)
-                return np.where(m < size, m, 2 * size - 1 - m)
-            return i % size
-
-        cols = index(ox, out_w, uw)
+        cols = _tile_index(ox, out_w, uw, tile == "mirror")
 
         def get(y0, y1):
-            rows = index(oy + y0, y1 - y0, uh)
+            rows = _tile_index(oy + y0, y1 - y0, uh, tile == "mirror")
             return Image.fromarray(unit[rows[:, None], cols[None, :]], "RGB")
+
+    tspec = recipe.get("texture")
+    tunit = tcols = None
+    if texture is not None and tspec and tspec.get("opacity", 0) > 0:
+        tunit = texture_unit(texture, tspec, pxx, pxy)
+        tcols = _tile_index(0, out_w, tunit.shape[1], tspec["mode"] == "mirror")
 
     final = Image.new("RGB", (out_w, out_h))
     step = max(16, strip_px // max(1, out_w))
@@ -290,6 +315,8 @@ def render(src, recipe, jw, jh, out_w, out_h, strip_px=4_000_000, progress=None,
             strip = ImageOps.mirror(strip)
         if do_colour:
             strip = colour_image(strip, col, hsl)
+        if tunit is not None:      # the texture lies on the wall; the artwork is multiplied over it
+            strip = multiply_texture(strip, tunit, tcols, tspec, y0, y1)
         final.paste(strip, (0, y0))
         if progress:
             progress(y1 / out_h)
