@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Print engine: crop maths, resolution check, client proof PDF and print TIFF."""
 import io
+import math
 import re
 from pathlib import Path
 
@@ -64,7 +65,11 @@ def check_params(p: dict):
     return out
 
 
-TILE_MODES = ("off", "repeat", "mirror")
+DROP_MODES = render.DROP_MODES
+CUSTOM_MODES = ("custom_v", "custom_h")      # drop by any amount, set in "drop" (percent of a repeat)
+TILE_MODES = ("off", "repeat", "mirror") + tuple(DROP_MODES) + CUSTOM_MODES
+TILE_LABEL = {"repeat": "Repeat", "mirror": "Mirror", "brick": "Brick", "half_v": "Half drop (vertical)",
+              "half_h": "Half drop (horizontal)", "quarter_v": "Quarter drop (vertical)", "quarter_h": "Quarter drop (horizontal)"}
 MIN_REPEAT_CM = 5.0
 
 
@@ -78,10 +83,10 @@ def eff_dpi(mw, art_w):
     return mw / art_w * 2.54
 
 
-def max_repeat_w(mw, mh, jw, jh):
+def max_repeat_w(mw, mh, jw, jh, den=1):
     """Largest repeat width allowed in tile mode: no bigger than covering the wall, and with a unit that stays
     within 3x the wall area so rendering memory stays bounded."""
-    return min(cover_w(mw, mh, jw, jh), (3 * jw * jh * mw / mh) ** 0.5)
+    return min(cover_w(mw, mh, jw, jh), (3 * jw * jh * mw / mh / den) ** 0.5)
 
 
 TEXTURE_MODES = ("repeat", "mirror")
@@ -126,12 +131,17 @@ def check_recipe(r, mw, mh, jw, jh, textures=None):
         if tile == "off":
             art_w = max(art_w, cover)
         else:
-            top = max_repeat_w(mw, mh, jw, jh)
+            top = max_repeat_w(mw, mh, jw, jh, DROP_MODES.get(tile, ("", 1))[1])
             if art_w < MIN_REPEAT_CM:
                 raise ValueError(f"The repeat should be at least {fmt(MIN_REPEAT_CM)} cm wide.")
             if art_w > top * 1.001:
                 raise ValueError("This repeat is too large to tile on this wall. Make it smaller or turn tiling off.")
         ah = art_w * ah_ratio
+        drop = 0.0
+        if tile in CUSTOM_MODES:
+            drop = min(100.0, max(0.0, float(r.get("drop", 50))))
+            if drop != drop:
+                raise ValueError("The drop amount is not valid.")
         off_x = float(r.get("off_x", (art_w - jw) / 2 if tile == "off" else 0))
         off_y = float(r.get("off_y", (ah - jh) / 2 if tile == "off" else 0))
         colour = {}
@@ -151,10 +161,14 @@ def check_recipe(r, mw, mh, jw, jh, textures=None):
         off_x = min(max(off_x, 0.0), max(0.0, art_w - jw))
         off_y = min(max(off_y, 0.0), max(0.0, ah - jh))
     else:
-        period_x = art_w * (2 if tile == "mirror" else 1)
-        period_y = ah * (2 if tile == "mirror" else 1)
+        ax, den = DROP_MODES.get(tile, ("", 1))
+        if tile in CUSTOM_MODES:     # the pattern comes round again after this many columns (or rows)
+            dn = int(round(drop * 100))
+            den, ax = 10000 // math.gcd(dn, 10000) if dn else 1, tile[-1]
+        period_x = art_w * (2 if tile == "mirror" else den if ax == "v" else 1)
+        period_y = ah * (2 if tile == "mirror" else den if ax == "h" else 1)
         off_x, off_y = off_x % period_x, off_y % period_y
-    return {"flip_h": bool(r.get("flip_h")), "flip_v": bool(r.get("flip_v")), "tile": tile,
+    return {"flip_h": bool(r.get("flip_h")), "flip_v": bool(r.get("flip_v")), "tile": tile, "drop": drop,
             "art_w": art_w, "off_x": off_x, "off_y": off_y, "colour": colour, "hsl": hsl, "texture": texture}
 
 
@@ -199,10 +213,10 @@ def describe_edits(r, unit="cm"):
         out.append("Flipped horizontally")
     if r["flip_v"]:
         out.append("Flipped vertically")
-    if r["tile"] == "repeat":
-        out.append(f"Repeat tile, {dim(r['art_w'], unit)} wide")
-    elif r["tile"] == "mirror":
-        out.append(f"Mirror tile, {dim(r['art_w'], unit)} wide")
+    if r["tile"] != "off":
+        label = (f"Custom drop {r['drop']:g}% ({'vertical' if r['tile'] == 'custom_v' else 'horizontal'})"
+                 if r["tile"] in CUSTOM_MODES else TILE_LABEL[r["tile"]])
+        out.append(f"{label} tile, {dim(r['art_w'], unit)} wide")
     for k, label in COLOUR_LABEL.items():
         v = r["colour"].get(k, 0)
         if v:

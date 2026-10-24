@@ -244,6 +244,26 @@ def _tile_index(start, n, size, mirror):
     return i % size
 
 
+# brick / drops: every next row (brick, horizontal drops) shifts sideways, or every next column (vertical drops)
+# shifts down, by a half or a quarter of the repeat, so the pattern only repeats after 2 or 4 rows / columns
+DROP_MODES = {"brick": ("h", 2), "half_v": ("v", 2), "half_h": ("h", 2), "quarter_v": ("v", 4), "quarter_h": ("h", 4)}
+
+
+def drop_unit(unit, ax, den):
+    """Brick / drop layouts: a larger repeating block made of `den` copies of the unit, each next copy moved by 1/den.
+    ax 'v': neighbouring columns drop down; ax 'h': neighbouring rows shift sideways."""
+    uh, uw = unit.shape[:2]
+    if ax == "v":
+        out = np.empty((uh, uw * den, 3), np.uint8)
+        for k in range(den):
+            out[:, k * uw:(k + 1) * uw] = np.roll(unit, (k * uh) // den, axis=0)
+    else:
+        out = np.empty((uh * den, uw, 3), np.uint8)
+        for k in range(den):
+            out[k * uh:(k + 1) * uh] = np.roll(unit, (k * uw) // den, axis=1)
+    return out
+
+
 def texture_unit(tex_img, spec, pxx, pxy):
     """One copy of the texture at the size it has on the wall, as a numpy array."""
     uw = max(1, round(spec["scale"] * pxx))
@@ -290,11 +310,23 @@ def render(src, recipe, jw, jh, out_w, out_h, strip_px=4_000_000, progress=None,
     else:
         uw, uh = max(1, round(aw * pxx)), max(1, round(ah * pxy))
         unit = np.asarray(src.resize((uw, uh), Image.LANCZOS))
+        if tile in DROP_MODES:
+            unit = drop_unit(unit, *DROP_MODES[tile])
+            uh, uw = unit.shape[:2]
         ox, oy = round(recipe["off_x"] * pxx), round(recipe["off_y"] * pxy)
 
         cols = _tile_index(ox, out_w, uw, tile == "mirror")
+        dnum = int(round(float(recipe.get("drop") or 0) * 100))     # custom drop, in 1/10000 of a repeat
 
         def get(y0, y1):
+            if tile in ("custom_v", "custom_h"):
+                ys = oy + y0 + np.arange(y1 - y0, dtype=np.int64)
+                xs = ox + np.arange(out_w, dtype=np.int64)
+                if tile == "custom_v":       # each next column drops a little more
+                    shift = (xs // uw) * dnum * uh // 10000 % uh
+                    return Image.fromarray(unit[(ys[:, None] - shift[None, :]) % uh, (xs % uw)[None, :]], "RGB")
+                shift = (ys // uh) * dnum * uw // 10000 % uw     # each next row moves a little more
+                return Image.fromarray(unit[(ys % uh)[:, None], (xs[None, :] - shift[:, None]) % uw], "RGB")
             rows = _tile_index(oy + y0, y1 - y0, uh, tile == "mirror")
             return Image.fromarray(unit[rows[:, None], cols[None, :]], "RGB")
 

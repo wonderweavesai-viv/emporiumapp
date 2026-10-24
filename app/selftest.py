@@ -225,6 +225,45 @@ def run():
         with Image.open(flat) as im, Image.open(tiff) as ref:
             check(np.asarray(im).mean() < np.asarray(ref).mean() - 10, "the printed file really is darker with the texture multiplied in")
 
+        print("Brick and drop tiling")
+        cell = np.arange(64, dtype=np.uint8).reshape(8, 8)
+        unit_img = Image.fromarray(np.dstack([cell * 3] * 3))      # 64 different values, so every move can be checked
+        yy, xx = np.mgrid[0:32, 0:32]
+        def tiled(mode, off=(0, 0)):
+            r = core.check_recipe({"tile": mode, "art_w": 5, "off_x": off[0], "off_y": off[1]}, 8, 8, 20, 20)
+            return np.asarray(render.render(unit_img, r, 20, 20, 32, 32))[:, :, 0] // 3, r
+        for mode, ax, den in [("half_v", "v", 2), ("quarter_v", "v", 4), ("half_h", "h", 2), ("quarter_h", "h", 4), ("brick", "h", 2)]:
+            got, r = tiled(mode)
+            if ax == "v":
+                col = xx // 8
+                want = ((yy - (col % den) * 8 // den) % 8) * 8 + xx % 8
+            else:
+                rw = yy // 8
+                want = (yy % 8) * 8 + (xx - (rw % den) * 8 // den) % 8
+            check((got == want).all(), f"{mode}: every pixel is where a {'column drop' if ax == 'v' else 'row shift'} of 1/{den} puts it")
+        def custom(mode, pct):
+            r = core.check_recipe({"tile": mode, "drop": pct, "art_w": 5, "off_x": 0, "off_y": 0}, 8, 8, 20, 20)
+            return np.asarray(render.render(unit_img, r, 20, 20, 32, 32))[:, :, 0] // 3, r
+        for mode, pct in [("custom_v", 37), ("custom_h", 62.5), ("custom_v", 100), ("custom_h", 0)]:
+            got, r = custom(mode, pct)
+            dn = int(round(pct * 100))
+            if mode == "custom_v":
+                want = ((yy - (xx // 8) * dn * 8 // 10000) % 8) * 8 + xx % 8
+            else:
+                want = (yy % 8) * 8 + (xx - (yy // 8) * dn * 8 // 10000) % 8
+            check((got == want).all(), f"custom drop {pct}% {mode[-1]}: every pixel is where it should be")
+        check((custom("custom_v", 50)[0] == tiled("half_v")[0]).all(), "custom drop 50% gives exactly the half drop")
+        check((custom("custom_h", 25)[0] == tiled("quarter_h")[0]).all(), "custom drop 25% gives exactly the quarter drop")
+        check((custom("custom_v", 100)[0] == tiled("repeat")[0]).all(), "custom drop 100% is a plain repeat")
+        check(core.describe_edits(custom("custom_v", 37)[1])[0].startswith("Custom drop 37% (vertical) tile"), "edits list gives the custom amount")
+        check(custom("custom_v", 250)[1]["drop"] == 100, "drop amount is kept between 0 and 100")
+        plain, _ = tiled("repeat")
+        check((plain == ((yy % 8) * 8 + xx % 8)).all(), "plain repeat still lines up")
+        check(core.describe_edits(tiled("quarter_h")[1])[0].startswith("Quarter drop (horizontal) tile"), "edits list names the layout")
+        st, pdf, _ = c.call("POST", "/api/proof", dict(payload, recipe={"tile": "half_v", "art_w": 15}))
+        check(st == 200 and pdf[:4] == b"%PDF", "proof with a half drop")
+        check(c.call("POST", "/api/proof", dict(payload, recipe={"tile": "wobbly"}))[0] == 400, "an unknown tiling is refused")
+
         print("Office network")
         st, j, _ = c.call("POST", "/api/settings", {"share_network": True})
         check(st == 400, "sharing is refused until a PIN is set")

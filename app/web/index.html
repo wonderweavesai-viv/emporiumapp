@@ -77,6 +77,22 @@ button { font: inherit; color: inherit; }
 .tex { aspect-ratio: 1; padding: 0; border: 2px solid transparent; border-radius: 8px; overflow: hidden; cursor: pointer; background: var(--line); color: var(--muted); font-size: 12px; font-weight: 600; display: grid; place-items: center; }
 .tex img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .tex[aria-pressed="true"] { border-color: var(--accent); }
+#tabs { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line); padding: 0 12px; flex: none; }
+#tabs button { height: 44px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-weight: 600; font-size: 14px; cursor: pointer; }
+#tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-left: 7px; vertical-align: middle; }
+#editbar { display: flex; justify-content: space-between; align-items: center; padding: 6px 18px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); flex: none; }
+#editbar button { border: 0; background: none; color: var(--accent); font-weight: 600; font-size: 12px; cursor: pointer; padding: 4px 0; }
+.pane { display: none; padding-bottom: 12px; } .pane.on { display: block; }
+.pgrp { padding: 16px 0 14px; border-bottom: 1px solid var(--line); } .pane > .pgrp:last-child { border-bottom: 0; }
+.pgrp > h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+.fields .ln { white-space: nowrap; }
+.tilegrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.tilebtn { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 2px 5px; border: 1px solid var(--line); border-radius: 9px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 600; cursor: pointer; line-height: 1.15; text-align: center; }
+.tilebtn .ic { display: block; width: 44px; height: 44px; border-radius: 4px; background: var(--bg); overflow: hidden; }
+.tilebtn svg { display: block; width: 44px; height: 44px; }
+.tilebtn[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); box-shadow: inset 0 0 0 1px var(--accent); }
+.tilebtn[aria-pressed="true"] .ic { color: var(--accent); }
 .pill.good { color: var(--good); } .pill.bad { color: var(--bad); } .pill.edit { color: var(--accent); }
 .btn { height: 40px; padding: 0 18px; border-radius: 10px; border: 1px solid var(--accent); background: transparent; color: var(--accent); font-weight: 600; cursor: pointer; }
 .btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 10%, transparent); }
@@ -156,6 +172,9 @@ details.sec[open] > summary::after { transform: rotate(-135deg); }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
 .seg button { height: 34px; border: 0; border-right: 1px solid var(--line); background: transparent; cursor: pointer; font-size: 13px; font-weight: 500; }
 .seg button:last-child { border-right: 0; }
+.seg.g3 { grid-auto-flow: row; grid-template-columns: repeat(3, 1fr); }
+.seg.g3 button { border-bottom: 1px solid var(--line); }
+.seg.g3 button:nth-child(3n) { border-right: 0; } .seg.g3 button:nth-last-child(-n+3) { border-bottom: 0; }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
 .tog { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
 .tog input { width: 16px; height: 16px; accent-color: var(--accent); }
@@ -171,7 +190,7 @@ details.sec[open] > summary::after { transform: rotate(-135deg); }
 .edlist { font-size: 12px; color: var(--accent); margin: 0; }
 #foot { border-top: 1px solid var(--line); padding: 12px 18px; background: var(--surface); display: flex; flex-direction: column; gap: 10px; }
 #paneConfirm, #paneStatus { flex: 1; overflow-y: auto; padding: 18px; flex-direction: column; gap: 14px; display: none; }
-#panel.confirm #panelScroll, #panel.confirm #foot, #panel.status #panelScroll, #panel.status #foot { display: none; }
+#panel.confirm #panelScroll, #panel.confirm #foot, #panel.confirm #tabs, #panel.confirm #editbar, #panel.status #panelScroll, #panel.status #foot, #panel.status #tabs, #panel.status #editbar { display: none; }
 #panel.confirm #paneConfirm, #panel.status #paneStatus { display: flex; }
 
 @media (max-width: 860px) {
@@ -282,21 +301,26 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     </div>
 
     <aside id="panel">
+      <div id="tabs" role="tablist" aria-label="Sections">
+        <button role="tab" data-tab="layout" aria-selected="true">Layout<i class="dot" id="dotLayout" hidden></i></button>
+        <button role="tab" data-tab="look" aria-selected="false">Look<i class="dot" id="dotLook" hidden></i></button>
+        <button role="tab" data-tab="print" aria-selected="false">Print</button>
+      </div>
+      <div id="editbar" hidden><span id="editCount"></span><button id="resetAll">Reset all edits</button></div>
       <div id="panelScroll">
-        <details class="sec" open>
-          <summary>Wall size</summary>
+        <div class="pane on" id="pane-layout">
+        <section class="pgrp"><h3>Wall size</h3>
           <div class="blk">
             <div class="fields">
-              <label>Width (<span class="uu">cm</span>)<input id="ww" type="number" inputmode="decimal" min="20" step="any"></label>
-              <label>Height (<span class="uu">cm</span>)<input id="wh" type="number" inputmode="decimal" min="20" step="any"></label>
-              <label>Allowance (<span class="uu">cm</span>)<input id="al" type="number" inputmode="decimal" min="0" step="any"></label>
+              <label><span class="ln">Width (<span class="uu">cm</span>)</span><input id="ww" type="number" inputmode="decimal" min="20" step="any"></label>
+              <label><span class="ln">Height (<span class="uu">cm</span>)</span><input id="wh" type="number" inputmode="decimal" min="20" step="any"></label>
+              <label><span class="ln">Allowance (<span class="uu">cm</span>)</span><input id="al" type="number" inputmode="decimal" min="0" step="any"></label>
             </div>
             <p class="info" id="printSize" style="margin:-6px 0 0"></p>
           </div>
-        </details>
+        </section>
 
-        <details class="sec" open>
-          <summary>Artwork size &amp; position</summary>
+        <section class="pgrp"><h3>Artwork size &amp; position</h3>
           <div class="blk">
             <div>
               <span class="lbl" id="awLbl">Artwork width on the wall</span>
@@ -322,10 +346,9 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
               </div>
             </div>
           </div>
-        </details>
+        </section>
 
-        <details class="sec" open>
-          <summary>Image editing</summary>
+        <section class="pgrp"><h3>Flip &amp; tiling</h3>
           <div class="blk">
             <div>
               <span class="lbl">Flip</span>
@@ -336,10 +359,25 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
             </div>
             <div>
               <span class="lbl">Tiling</span>
-              <div class="seg" id="tileSeg">
-                <button data-t="off" aria-pressed="true">Off</button>
-                <button data-t="repeat" aria-pressed="false">Repeat</button>
-                <button data-t="mirror" aria-pressed="false">Mirror</button>
+              <div class="tilegrid" id="tileSeg">
+                <button class="tilebtn" data-t="off" aria-pressed="true"><span class="ic" data-ic="off"></span>Off</button>
+                <button class="tilebtn" data-t="repeat" aria-pressed="false"><span class="ic" data-ic="repeat"></span>Repeat</button>
+                <button class="tilebtn" data-t="mirror" aria-pressed="false"><span class="ic" data-ic="mirror"></span>Mirror</button>
+                <button class="tilebtn" data-t="brick" aria-pressed="false"><span class="ic" data-ic="brick"></span>Brick</button>
+                <button class="tilebtn" data-t="half" aria-pressed="false"><span class="ic" data-ic="half"></span>Half drop</button>
+                <button class="tilebtn" data-t="quarter" aria-pressed="false"><span class="ic" data-ic="quarter"></span>Quarter drop</button>
+                <button class="tilebtn" data-t="custom" aria-pressed="false"><span class="ic" data-ic="custom"></span>Custom drop</button>
+              </div>
+              <div class="seg" id="dropDir" hidden style="margin-top:8px" aria-label="Direction of the drop">
+                <button data-d="v" aria-pressed="true">Vertical</button>
+                <button data-d="h" aria-pressed="false">Horizontal</button>
+              </div>
+              <div id="customCtl" hidden style="margin-top:10px">
+                <span class="lbl">Drop (% of a repeat)</span>
+                <div class="sizerow">
+                  <input class="numin" id="dn" type="number" inputmode="decimal" min="0" max="100" step="1" aria-label="Drop in percent">
+                  <input id="dnS" type="range" min="0" max="100" step="1" aria-label="Drop in percent">
+                </div>
               </div>
               <p class="info" id="tileInfo"></p>
               <div id="tileCtl" hidden style="margin-top:10px;display:flex;flex-direction:column;gap:10px">
@@ -352,10 +390,12 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
             </div>
             <button class="btn small" id="resetEdits" style="align-self:flex-start">Reset flips &amp; tiling</button>
           </div>
-        </details>
+        </section>
+        </div>
+        <div class="pane" id="pane-look">
 
-        <details class="sec">
-          <summary>Colour</summary>
+        <details class="sec" open>
+          <summary><span>Colour<i class="dot" id="dotColour" hidden></i></span></summary>
           <div class="blk">
             <div><span class="lbl">Looks</span><div class="chips" id="looks"></div></div>
             <div class="blk" id="sliders"></div>
@@ -364,7 +404,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
         </details>
 
         <details class="sec" id="hslSec">
-          <summary>Colour ranges (HSL)</summary>
+          <summary><span>Colour ranges (HSL)<i class="dot" id="dotHsl" hidden></i></span></summary>
           <div class="blk">
             <div class="seg" id="hslMode" aria-label="Adjust in HSL or HSV">
               <button data-m="hsl" aria-pressed="true">HSL</button>
@@ -386,7 +426,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
         </details>
 
         <details class="sec" id="texSec">
-          <summary>Texture</summary>
+          <summary><span>Texture<i class="dot" id="dotTex" hidden></i></span></summary>
           <div class="blk">
             <p class="info" id="texEmpty" hidden></p>
             <div class="texgrid" id="texGrid"></div>
@@ -417,9 +457,10 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
             </div>
           </div>
         </details>
+        </div>
+        <div class="pane" id="pane-print">
 
-        <details class="sec" open style="border-bottom:0">
-          <summary>Print</summary>
+        <section class="pgrp"><h3>Print</h3>
           <div class="blk">
             <div>
               <span class="lbl">Resolution</span>
@@ -436,7 +477,8 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
             </div>
             <p class="edlist" id="edList" hidden></p>
           </div>
-        </details>
+        </section>
+        </div>
       </div>
 
       <div id="foot">
@@ -815,7 +857,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
   var SLIDERS = [
     { g: 'Tone', items: [['brightness', 'Brightness', -100, 100], ['contrast', 'Contrast', -100, 100], ['fade', 'Fade (lighten)', 0, 100]] },
     { g: 'Colour', items: [['saturation', 'Saturation', -100, 100], ['vibrance', 'Vibrance', -100, 100], ['hue', 'Hue shift', -180, 180], ['warmth', 'Warmth (cool ↔ warm)', -100, 100]] },
-    { g: 'Looks', items: [['bw', 'Black & white', 0, 100], ['sepia', 'Sepia', 0, 100]] }
+    { g: 'Effects', items: [['bw', 'Black & white', 0, 100], ['sepia', 'Sepia', 0, 100]] }
   ];
   var PRESETS = [['Original', {}], ['Black & white', { bw: 100 }], ['Sepia', { sepia: 100 }], ['Faded', { fade: 35, contrast: -10, saturation: -15 }],
                  ['Vivid', { saturation: 25, vibrance: 30, contrast: 10 }], ['Warm', { warmth: 30 }], ['Cool', { warmth: -30 }]];
@@ -898,10 +940,46 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
   }
   function validWall() { return S && S.wallW >= 20 && S.wallH >= 20 && S.allowance >= 0 && isFinite(S.wallW + S.wallH + S.allowance); }
 
+  // brick and drop layouts (mirrors DROP_MODES in render.py): 'v' = next columns drop down, 'h' = next rows shift sideways
+  var DROPS = { brick: { ax: 'h', den: 2, label: 'Brick' }, half_v: { ax: 'v', den: 2, label: 'Half drop (vertical)' }, half_h: { ax: 'h', den: 2, label: 'Half drop (horizontal)' },
+                quarter_v: { ax: 'v', den: 4, label: 'Quarter drop (vertical)' }, quarter_h: { ax: 'h', den: 4, label: 'Quarter drop (horizontal)' } };
+  /* little pictures of each layout: a tile with a corner mark, so you can see how the copies sit */
+  function tileIcon(kind) {
+    var cw = 11, ch = 15, o = '';
+    function cell(x, y, fx, fy) {
+      var gx = fx ? x + cw - 1.5 : x + 1.5, gy = fy ? y + ch - 1.5 : y + 1.5, dx = fx ? -4 : 4, dy = fy ? -5 : 5;
+      return '<rect x="' + x + '" y="' + y + '" width="' + cw + '" height="' + ch + '" fill="none" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>' +
+             '<path d="M' + gx + ' ' + gy + 'h' + dx + 'L' + gx + ' ' + (gy + dy) + 'z" fill="currentColor"/>';
+    }
+    if (kind === 'off') return '<svg viewBox="0 0 44 44"><rect x="6" y="3" width="32" height="38" fill="none" stroke="currentColor" stroke-opacity=".45"/><path d="M8 5h11L8 20z" fill="currentColor"/></svg>';
+    var ax = 'v', step = 0, mir = kind === 'mirror';
+    if (kind === 'brick') { ax = 'h'; step = .5; } else if (kind === 'half') step = .5; else if (kind === 'quarter') step = .25; else if (kind === 'custom') step = .37;
+    var ox = kind === 'brick' ? 0 : 0, c, k;
+    if (ax === 'v') {
+      for (c = 0; c < 4; c++) { var sh = ((c * step) % 1) * ch; for (k = -1; k < 4; k++) { var y = sh + k * ch; if (y < 44 && y + ch > 0) o += cell(c * cw, y, mir && c % 2, mir && ((k % 2) + 2) % 2); } }
+    } else {
+      for (var rr = 0; rr < 3; rr++) { var shx = ((rr * step) % 1) * cw; for (k = -1; k < 5; k++) { var x = shx + k * cw; if (x < 44 && x + cw > 0) o += cell(x, rr * ch, 0, 0); } }
+    }
+    return '<svg viewBox="0 0 44 44">' + o + '</svg>';
+  }
+  document.querySelectorAll('#tileSeg .ic').forEach(function (e) { e.innerHTML = tileIcon(e.dataset.ic); });
+  function tileFamily(t) { return t === 'brick' ? 'brick' : /^half/.test(t) ? 'half' : /^quarter/.test(t) ? 'quarter' : /^custom/.test(t) ? 'custom' : t; }
+  function gcd(a, b) { return b ? gcd(b, a % b) : a; }
+  // the layout of the current tiling: which way it moves, how many columns/rows until it comes round again, and how far each step goes
+  function dropInfo(r) {
+    var d = DROPS[r.tile]; if (d) return { ax: d.ax, den: d.den, step: 1 / d.den, label: d.label, std: true };
+    if (/^custom_/.test(r.tile)) {
+      var dn = Math.round((r.drop || 0) * 100);
+      return { ax: r.tile.slice(-1), den: dn ? 10000 / gcd(dn, 10000) : 1, step: dn / 10000, dn: dn,
+               label: 'Custom drop ' + fmt(r.drop) + '% (' + (r.tile === 'custom_v' ? 'vertical' : 'horizontal') + ')', std: false };
+    }
+    return null;
+  }
   function G() {
     var a = S.art, jw = S.wallW + S.allowance, jh = S.wallH + S.allowance, mw = a.w, mh = a.h;
     var cover = Math.max(jw, jh * mw / mh);
-    var maxRep = Math.min(cover, Math.sqrt(3 * jw * jh * mw / mh));
+    var den = DROPS[S.r.tile] ? DROPS[S.r.tile].den : 1;
+    var maxRep = Math.min(cover, Math.sqrt(3 * jw * jh * mw / mh / den));
     var aw = S.r.art_w, ah = aw * mh / mw;
     return { jw: jw, jh: jh, mw: mw, mh: mh, cover: cover, maxRep: maxRep, aw: aw, ah: ah, eff: mw / aw * 2.54 };
   }
@@ -921,9 +999,9 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
       r.off_x = Math.min(Math.max(r.off_x, 0), g.aw - g.jw);
       r.off_y = Math.min(Math.max(r.off_y, 0), g.ah - g.jh);
     } else {
-      var k = r.tile === 'mirror' ? 2 : 1;
-      r.off_x = ((r.off_x % (g.aw * k)) + g.aw * k) % (g.aw * k);
-      r.off_y = ((r.off_y % (g.ah * k)) + g.ah * k) % (g.ah * k);
+      var dp = dropInfo(r), kx = r.tile === 'mirror' ? 2 : (dp && dp.ax === 'v' ? dp.den : 1), ky = r.tile === 'mirror' ? 2 : (dp && dp.ax === 'h' ? dp.den : 1);
+      r.off_x = ((r.off_x % (g.aw * kx)) + g.aw * kx) % (g.aw * kx);
+      r.off_y = ((r.off_y % (g.ah * ky)) + g.ah * ky) % (g.ah * ky);
     }
   }
   function centreArt() {
@@ -931,7 +1009,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     if (S.r.tile === 'off') { S.r.off_x = (g.aw - g.jw) / 2; S.r.off_y = (g.ah - g.jh) / 2; } else { S.r.off_x = 0; S.r.off_y = 0; }
   }
   function fresh() {
-    return { flip_h: false, flip_v: false, tile: 'off', art_w: 1, off_x: 0, off_y: 0, colour: neutralColour(), hsl: hslFresh(), texture: null };
+    return { flip_h: false, flip_v: false, tile: 'off', art_w: 1, off_x: 0, off_y: 0, colour: neutralColour(), hsl: hslFresh(), texture: null, drop: 50 };
   }
 
   // zoom: the point (fx, fy) of the view (0..1) stays where it is
@@ -970,7 +1048,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     applyUnit();
     $('client').value = ''; $('who').value = store('name') || ''; $('approved').checked = false;
     $('seams').checked = false; $('proofRes').hidden = true;
-    buildColourUI(); loadTextures();
+    buildColourUI(); loadTextures(); setTab('layout');
     $('panel').className = '';
     $('browse').hidden = true; $('setup').hidden = false;
     try { history.pushState({ v: 'setup' }, ''); } catch (e) {}
@@ -992,13 +1070,21 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     fixRecipe();
     if (validWall()) {
       var g = G();
-      if (S.dpi !== 'native' && g.eff < S.dpi * 0.995) {
+      var opts = cfg.dpi_options.slice().sort(function (a, b) { return b - a; });
+      var fits = function (d) { return g.eff >= d * 0.995; };
+      if (S.autoNative) {         // Image default was picked for you; go back to your usual resolution once it fits again
+        var pref = parseInt(store('dpi'), 10) || cfg.dpi_options[0], back = fits(pref) ? pref : opts.filter(fits)[0];
+        if (back) { S.dpi = back; S.autoNative = false; }
+      } else if (S.dpi !== 'native' && g.eff < S.dpi * 0.995) {
         // the chosen resolution is not possible at this size: move to the best one that is
-        var opts = cfg.dpi_options.slice().sort(function (a, b) { return b - a; });
-        var best = opts.filter(function (d) { return g.eff >= d * 0.995; })[0];
+        var best = opts.filter(fits)[0];
         if (best && best !== S.dpi) {
           var wanted = S.dpi; S.dpi = best;
           if (!S.autoDpi) toast(wanted + ' dpi is not possible at this size, so I switched to ' + best + ' dpi.');
+        } else if (!best && g.eff >= cfg.min_dpi) {
+          // none of the standard resolutions fit: print at the artwork's own resolution instead
+          var was = S.dpi; S.dpi = 'native'; S.autoNative = true;
+          if (!S.autoDpi) toast(was + ' dpi is not possible at this size, so I switched to Image default (' + Math.floor(g.eff) + ' dpi).');
         }
       }
     }
@@ -1141,12 +1227,37 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
           mc.save(); mc.scale(-1, -1); mc.drawImage(u, -2 * uw, -2 * uh); mc.restore();
           tc = m;
         }
+        var dr = DROPS[r.tile];
+        if (dr) {   // a block of `den` copies, each moved on by 1/den
+          var sw2 = dr.ax === 'v' ? uw * dr.den : uw, sh2 = dr.ax === 'h' ? uh * dr.den : uh;
+          var sc = mkCanvas('sup2'); sc.width = sw2; sc.height = sh2; var sx2 = sc.getContext('2d');
+          for (var kk = 0; kk < dr.den; kk++) {
+            if (dr.ax === 'v') { var dy = Math.floor(kk * uh / dr.den); sx2.drawImage(u, kk * uw, dy); sx2.drawImage(u, kk * uw, dy - uh); }
+            else { var dx = Math.floor(kk * uw / dr.den); sx2.drawImage(u, dx, kk * uh); sx2.drawImage(u, dx - uw, kk * uh); }
+          }
+          tc = sc;
+        }
         S.tileCv = tc; S.unitKey = key;
       }
       var ox = Math.round(r.off_x * pxx), oy = Math.round(r.off_y * pxy);
-      var pat = b.createPattern(S.tileCv, 'repeat');
-      pat.setTransform(new DOMMatrix().translate(-ox, -oy));
-      b.fillStyle = pat; b.fillRect(0, 0, W, H);
+      if (/^custom_/.test(r.tile)) {      // every column (or row) has its own drop, so draw them one by one
+        var dn = Math.round(r.drop * 100), cu = S.tileCv, cx, cy, sh, k2;
+        if (r.tile === 'custom_v') {
+          for (cx = Math.floor(ox / uw); cx * uw - ox < W; cx++) {
+            sh = Math.floor(cx * dn * uh / 10000) % uh;
+            for (cy = (((sh - oy) % uh) + uh) % uh - uh; cy < H; cy += uh) b.drawImage(cu, cx * uw - ox, cy);
+          }
+        } else {
+          for (cy = Math.floor(oy / uh); cy * uh - oy < H; cy++) {
+            sh = Math.floor(cy * dn * uw / 10000) % uw;
+            for (cx = (((sh - ox) % uw) + uw) % uw - uw; cx < W; cx += uw) b.drawImage(cu, cx, cy * uh - oy);
+          }
+        }
+      } else {
+        var pat = b.createPattern(S.tileCv, 'repeat');
+        pat.setTransform(new DOMMatrix().translate(-ox, -oy));
+        b.fillStyle = pat; b.fillRect(0, 0, W, H);
+      }
     }
     var ctx = cv.getContext('2d', { willReadFrequently: true });
     ctx.save();
@@ -1194,11 +1305,27 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
       c.strokeStyle = 'rgba(0,0,0,.55)'; c.lineWidth = 3; c.setLineDash([]); c.stroke();
       c.strokeStyle = '#fff'; c.lineWidth = 1; c.setLineDash([6, 4]); c.stroke();
     }
-    for (var x = -((r.off_x % g.aw) + g.aw) % g.aw; x <= g.jw + 1e-6; x += g.aw) {
-      if (x < 0) continue; var vx = (r.flip_h ? g.jw - x : x) * k; line(vx, 0, vx, h);
-    }
-    for (var y = -((r.off_y % g.ah) + g.ah) % g.ah; y <= g.jh + 1e-6; y += g.ah) {
-      if (y < 0) continue; var vy = (r.flip_v ? g.jh - y : y) * ky; line(0, vy, w, vy);
+    var X = function (x) { return (r.flip_h ? g.jw - x : x) * k; }, Y = function (y) { return (r.flip_v ? g.jh - y : y) * ky; };
+    var dr = dropInfo(r), mod = function (a, n) { return ((a % n) + n) % n; }, stepOf = function (i) { return dr.std ? (i % dr.den) / dr.den : ((i * dr.dn) % 10000) / 10000; };
+    if (dr && dr.ax === 'v') {          // columns stay straight, each column's seams are moved down
+      for (var xv = -mod(r.off_x, g.aw); xv <= g.jw + 1e-6; xv += g.aw) { if (xv >= 0) line(X(xv), 0, X(xv), h); }
+      for (var cc = Math.floor(r.off_x / g.aw); cc * g.aw - r.off_x < g.jw; cc++) {
+        var xa = Math.max(0, cc * g.aw - r.off_x), xb = Math.min(g.jw, (cc + 1) * g.aw - r.off_x), yy0 = mod(stepOf(cc) * g.ah - r.off_y, g.ah);
+        for (var yv = yy0; yv <= g.jh + 1e-6; yv += g.ah) line(X(xa), Y(yv), X(xb), Y(yv));
+      }
+    } else if (dr) {                    // rows stay straight, each row's seams are moved sideways
+      for (var yh = -mod(r.off_y, g.ah); yh <= g.jh + 1e-6; yh += g.ah) { if (yh >= 0) line(0, Y(yh), w, Y(yh)); }
+      for (var rr = Math.floor(r.off_y / g.ah); rr * g.ah - r.off_y < g.jh; rr++) {
+        var ya = Math.max(0, rr * g.ah - r.off_y), yb = Math.min(g.jh, (rr + 1) * g.ah - r.off_y), xx0 = mod(stepOf(rr) * g.aw - r.off_x, g.aw);
+        for (var xh = xx0; xh <= g.jw + 1e-6; xh += g.aw) line(X(xh), Y(ya), X(xh), Y(yb));
+      }
+    } else {
+      for (var x = -((r.off_x % g.aw) + g.aw) % g.aw; x <= g.jw + 1e-6; x += g.aw) {
+        if (x < 0) continue; line(X(x), 0, X(x), h);
+      }
+      for (var y = -((r.off_y % g.ah) + g.ah) % g.ah; y <= g.jh + 1e-6; y += g.ah) {
+        if (y < 0) continue; line(0, Y(y), w, Y(y));
+      }
     }
   }
   function drawMini(g) {
@@ -1224,7 +1351,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     var r = S.r, o = [];
     if (r.flip_h) o.push('Flipped horizontally');
     if (r.flip_v) o.push('Flipped vertically');
-    if (r.tile !== 'off') o.push((r.tile === 'mirror' ? 'Mirror' : 'Repeat') + ' tile, ' + fuu(r.art_w) + ' wide');
+    if (r.tile !== 'off') o.push((dropInfo(r) ? dropInfo(r).label : r.tile === 'mirror' ? 'Mirror' : 'Repeat') + ' tile, ' + fuu(r.art_w) + ' wide');
     SLIDERS.forEach(function (grp) { grp.items.forEach(function (it) {
       var v = r.colour[it[0]]; if (!v) return;
       o.push(it[1].replace(/ \(.*\)/, '') + ' ' + (it[2] < 0 ? (v > 0 ? '+' : '') + v : v + '%'));
@@ -1240,8 +1367,15 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     var r = S.r, ok = validWall();
     $('printSize').textContent = ok ? 'Print area ' + fu(S.wallW + S.allowance) + ' × ' + fuu(S.wallH + S.allowance) + ' (wall + allowance)' : 'Enter a wall size of at least ' + fuu(20) + '.';
     ['flipH', 'flipV'].forEach(function (id) { $(id).setAttribute('aria-pressed', id === 'flipH' ? r.flip_h : r.flip_v); });
-    $('tileSeg').querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.t === r.tile); });
+    $('tileSeg').querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.t === tileFamily(r.tile)); });
+    var fam = tileFamily(r.tile); $('dropDir').hidden = !(fam === 'half' || fam === 'quarter' || fam === 'custom'); $('customCtl').hidden = fam !== 'custom';
+    setIfIdle('dn', fmt(r.drop)); setIfIdle('dnS', r.drop);
+    $('dropDir').querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.d === (dropInfo(r) ? dropInfo(r).ax : 'v')); });
     var edits = listEdits();
+    var layoutEd = r.flip_h || r.flip_v || r.tile !== 'off', colourEd = !colourIsNeutral(r.colour), hslEd = !hslNeutral(r.hsl), texEd = !!r.texture;
+    $('dotLayout').hidden = !layoutEd; $('dotLook').hidden = !(colourEd || hslEd || texEd);
+    $('dotColour').hidden = !colourEd; $('dotHsl').hidden = !hslEd; $('dotTex').hidden = !texEd;
+    $('editbar').hidden = !edits.length; $('editCount').textContent = edits.length + (edits.length === 1 ? ' edit' : ' edits') + ' on this artwork';
     $('edList').hidden = !edits.length; $('edList').textContent = edits.length ? 'Edits: ' + edits.join(' · ') : '';
     // colour sliders and looks
     COLOUR_KEYS.forEach(function (k) {
@@ -1271,7 +1405,14 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     $('fit').textContent = tiled ? 'Reset size' : 'Fit to wall';
     $('tileCtl').hidden = !tiled;
     $('tileInfo').textContent = r.tile === 'off' ? 'Tile the artwork across the wall for murals made to repeat.'
-      : r.tile === 'repeat' ? 'The artwork repeats side by side. Check the edges join well.' : 'Every second copy is mirrored, so the edges always join.';
+      : r.tile === 'repeat' ? 'The artwork repeats side by side. Check the edges join well.'
+      : r.tile === 'mirror' ? 'Every second copy is mirrored, so the edges always join.'
+      : r.tile === 'brick' ? 'Every second row is moved sideways by half a repeat, like bricks.'
+      : r.tile === 'half_v' ? 'Every second column drops down by half a repeat.'
+      : r.tile === 'half_h' ? 'Every second row is moved sideways by half a repeat.'
+      : /^custom_/.test(r.tile) ? 'Each next ' + (r.tile === 'custom_v' ? 'column drops down' : 'row moves sideways') + ' by another ' + fmt(r.drop) + '% of a repeat' + (r.drop % 100 === 0 ? ', which is the same as a plain repeat.' : '.')
+      : r.tile === 'quarter_v' ? 'Each column drops down by another quarter of a repeat, so the pattern lines up again every fourth column.'
+      : 'Each row is moved sideways by another quarter of a repeat, so the pattern lines up again every fourth row.';
     $('mUp').disabled = $('mDown').disabled = $('mLeft').disabled = $('mRight').disabled = false;
     // readout
     $('rd').innerHTML = '<span>' + fu(g.jw) + ' × ' + fuu(g.jh) + '</span><span class="dim">artwork ' + fuu(r.art_w) + ' wide</span>' +
@@ -1288,7 +1429,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
       : good && nat ? 'Image default: ' + (Math.floor(g.eff * 100) / 100) + ' dpi, the artwork\'s own resolution at this size. Print file ' + num(tw) + ' × ' + num(th) + ' px, no resampling.'
       : good
       ? 'Print file ' + num(tw) + ' × ' + num(th) + ' px. At this size the artwork gives up to ' + Math.floor(g.eff) + ' dpi.'
-      : 'Not enough pixels for ' + S.dpi + ' dpi at this size: the artwork gives about ' + Math.floor(g.eff) + ' dpi. Lower the resolution, make the artwork smaller on the wall, use a smaller wall or choose another design.';
+      : 'Not enough pixels for ' + (nat ? 'this size' : S.dpi + ' dpi') + ': the artwork gives about ' + Math.floor(g.eff) + ' dpi here. Pick Image default, make the artwork smaller, or use a smaller wall.';
     var lg = [{ id: '', name: 'None' }].concat(cfg.logos);
     $('logoChips').innerHTML = lg.map(function (l) { return '<button class="chip" data-l="' + esc(l.id) + '" aria-pressed="' + (S.logo === l.id) + '">' + esc(l.name) + '</button>'; }).join('');
     $('logoWrap').hidden = !cfg.logos.length;
@@ -1304,8 +1445,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     return { lo: 2, hi: Math.max(2, top) };
   }
   async function loadTextures() {
-    if (DEMO) return;
-    try { var list = await api('api/textures'); if (S) { S.texList = list; refreshTex(); } } catch (e) {}
+    try { var list = await api(DEMO ? 'data/textures.json' : 'api/textures'); if (S) { S.texList = list; refreshTex(); } } catch (e) {}
   }
   function pickTexture(id) {
     if (!id) { S.r.texture = null; S.texImg = null; S.texKey = ''; update(); return; }
@@ -1544,13 +1684,34 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
   $('flipH').addEventListener('click', function () { S.r.flip_h = !S.r.flip_h; update(); });
   $('flipV').addEventListener('click', function () { S.r.flip_v = !S.r.flip_v; update(); });
   $('tileSeg').addEventListener('click', function (e) {
-    var b = e.target.closest('button'); if (!b || b.dataset.t === S.r.tile) return;
+    var b = e.target.closest('button'); if (!b || b.dataset.t === tileFamily(S.r.tile)) return;
     var was = S.r.tile, now = b.dataset.t;
+    if (now === 'half' || now === 'quarter' || now === 'custom') now += '_' + (dropInfo(S.r) && was !== 'brick' ? dropInfo(S.r).ax : (S.dropAx || 'v'));
     S.r.tile = now;
     if (was === 'off') { S.r.art_w = clampArtW(G().jw / 2); S.r.off_x = S.r.off_y = 0; S.unitKey = ''; }
     else if (now === 'off') { S.r.art_w = G().cover; centreArt(); }
     else { S.unitKey = ''; }
     update();
+  });
+  $('dropDir').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return; S.dropAx = b.dataset.d;
+    S.r.tile = tileFamily(S.r.tile) + '_' + b.dataset.d; S.unitKey = ''; update();
+  });
+  function setDrop(v) { if (!isFinite(v)) return; S.r.drop = Math.min(100, Math.max(0, v)); update(); interactive(); }
+  $('dn').addEventListener('input', function () { setDrop(parseFloat(this.value)); });
+  $('dn').addEventListener('change', function () { update(); $('dn').value = fmt(S.r.drop); });
+  $('dnS').addEventListener('input', function () { setDrop(+this.value); });
+  function setTab(name) {
+    document.querySelectorAll('#tabs button').forEach(function (b) { b.setAttribute('aria-selected', b.dataset.tab === name); });
+    document.querySelectorAll('.pane').forEach(function (p) { p.classList.toggle('on', p.id === 'pane-' + name); });
+    $('panelScroll').scrollTop = 0;
+  }
+  $('tabs').addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) setTab(b.dataset.tab); });
+  $('resetAll').addEventListener('click', function () {
+    var keep = S.hslMask; S.r = fresh(); S.r.art_w = G().cover; centreArt();
+    S.hslSel = -1; S.hslPick = false; S.hslMask = false; $('hslMask').checked = false; $('wallwrap').classList.remove('picking');
+    S.texImg = null; S.texKey = ''; S.unitKey = ''; S.seams = false; $('seams').checked = false;
+    update(); toast('All edits cleared.');
   });
   $('seams').addEventListener('change', function () { S.seams = this.checked; schedule(); });
   $('resetEdits').addEventListener('click', function () {
@@ -1570,7 +1731,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
   $('resetColour').addEventListener('click', function () { S.r.colour = neutralColour(); update(); });
   $('dpiChips').addEventListener('click', function (e) {
     var b = e.target.closest('.chip'); if (!b) return;
-    S.dpi = b.dataset.d === 'native' ? 'native' : parseInt(b.dataset.d, 10); store('dpi', S.dpi); update();
+    S.dpi = b.dataset.d === 'native' ? 'native' : parseInt(b.dataset.d, 10); S.autoNative = false; store('dpi', S.dpi); update();
   });
   $('logoChips').addEventListener('click', function (e) {
     var b = e.target.closest('.chip'); if (!b) return; S.logo = b.dataset.l; store('logo', S.logo); update();
@@ -1646,7 +1807,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
 
   /* ------------------------------------------------ proof and print */
   function recipePayload() {
-    var r = S.r; return { flip_h: r.flip_h, flip_v: r.flip_v, tile: r.tile, art_w: r.art_w, off_x: r.off_x, off_y: r.off_y, colour: r.colour, hsl: r.hsl,
+    var r = S.r; return { flip_h: r.flip_h, flip_v: r.flip_v, tile: r.tile, art_w: r.art_w, off_x: r.off_x, off_y: r.off_y, colour: r.colour, hsl: r.hsl, drop: r.drop,
              texture: r.texture ? { id: r.texture.id, scale: r.texture.scale, mode: r.texture.mode, opacity: r.texture.opacity } : null };
   }
   function payload() {
