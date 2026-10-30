@@ -146,6 +146,11 @@ input[type="range"] { width: 100%; accent-color: var(--accent); height: 22px; ma
 #ovl { pointer-events: none; }
 .ov { position: absolute; z-index: 3; }
 #cmp { top: 12px; right: 14px; height: 34px; padding: 0 14px; border-radius: 17px; border: 1px solid rgba(255,255,255,.35); background: rgba(10,14,14,.62); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
+#origBtn { top: 12px; right: 190px; height: 34px; padding: 0 14px; border-radius: 17px; border: 1px solid rgba(255,255,255,.35); background: rgba(10,14,14,.62); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
+#origView { z-index: 60; }
+.ovbox { position: relative; background: var(--surface); border-radius: 12px; padding: 14px; max-width: min(92vw, 900px); max-height: 92vh; display: flex; flex-direction: column; gap: 8px; align-items: center; margin: auto; }
+.ovbox img { max-width: 100%; max-height: calc(92vh - 90px); object-fit: contain; display: block; }
+.ovbox .iconbtn { position: absolute; top: 8px; right: 8px; background: var(--surface); }
 #cmp:disabled { opacity: .4; cursor: default; }
 #cmp.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 #hint { left: 50%; bottom: 10px; transform: translateX(-50%); background: rgba(10,14,14,.62); color: #fff; font-size: 12px; padding: 5px 12px; border-radius: 14px; pointer-events: none; white-space: nowrap; }
@@ -295,6 +300,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
         <div id="wallwrap"><canvas id="wall" aria-label="Wall preview"></canvas><canvas id="ovl" aria-hidden="true"></canvas></div>
       </div>
       <div id="nowall">Enter the wall size to see the preview.</div>
+      <button class="ov" id="origBtn" title="See the whole artwork, before any edits">Original artwork</button>
       <button class="ov" id="cmp" title="Hold to see the original colours (or hold C)">Hold: original colours</button>
       <div class="ov" id="mini" hidden><img id="miniImg" alt=""><div class="win" id="miniWin"></div></div>
       <div class="ov" id="hint">Drag to move · Scroll to zoom · Arrow keys nudge</div>
@@ -465,12 +471,20 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
             <div>
               <span class="lbl">Resolution</span>
               <div class="chips" id="dpiChips"></div>
+              <div id="customDpi" hidden style="margin-top:10px">
+                <span class="lbl">Print at (dpi)</span>
+                <div class="sizerow">
+                  <input class="numin" id="cdpi" type="number" inputmode="numeric" min="36" max="600" step="1" aria-label="Custom dpi">
+                  <input id="cdpiS" type="range" min="36" max="600" step="1" aria-label="Custom dpi">
+                </div>
+              </div>
               <p class="info" id="resInfo"></p>
             </div>
             <div id="logoWrap">
               <span class="lbl">Logo on the proof</span>
               <div class="chips" id="logoChips"></div>
             </div>
+            <label class="tog"><input type="checkbox" id="showOrig" checked> Show the original artwork on the proof</label>
             <div class="fields two">
               <label>Client / job reference<input class="txt" id="client" type="text" maxlength="120" placeholder="Optional"></label>
               <label>Your name<input class="txt" id="who" type="text" maxlength="60" placeholder="For the job sheet"></label>
@@ -525,6 +539,14 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
         <label class="fld">Notes<textarea id="edNotes" maxlength="500"></textarea></label>
       </div>
       <div class="mfoot"><button class="btn" id="edCancel">Cancel</button><button class="btn primary" id="edSave">Save</button></div>
+    </div>
+  </div>
+
+  <div id="origView" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="ovTitle">
+    <div class="ovbox">
+      <button class="iconbtn" id="ovX" aria-label="Close">✕</button>
+      <img id="ovImg" alt="">
+      <p id="ovTitle" class="info"></p>
     </div>
   </div>
 
@@ -1036,7 +1058,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     browseScroll = $('browse').scrollTop;
     var w = (store('wall') || '').split('x');
     S = { art: art, wallW: parseFloat(w[0]) || 180, wallH: parseFloat(w[1]) || 320, allowance: cfg.allowance,
-          dpi: store('dpi') === 'native' ? 'native' : (parseInt(store('dpi'), 10) || cfg.dpi_options[0]), texList: [], texImg: null, logo: store('logo') || '', autoDpi: true,
+          dpi: store('dpi') === 'native' ? 'native' : (parseInt(store('dpi'), 10) || cfg.dpi_options[0]), texList: [], texImg: null, customDpi: 300, logo: store('logo') || '', autoDpi: true,
           r: fresh(), hslSel: -1, hslPick: false, hslMask: false, seams: false, compare: false, approved: false, img: new Image(), cssW: 0, cssH: 0 };
     if (S.logo && !cfg.logos.some(function (l) { return l.id === S.logo; })) S.logo = '';
     S.r.art_w = G().cover; centreArt();
@@ -1075,7 +1097,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
       if (S.autoNative) {         // Image default was picked for you; go back to your usual resolution once it fits again
         var pref = parseInt(store('dpi'), 10) || cfg.dpi_options[0], back = fits(pref) ? pref : opts.filter(fits)[0];
         if (back) { S.dpi = back; S.autoNative = false; }
-      } else if (S.dpi !== 'native' && g.eff < S.dpi * 0.995) {
+      } else if (S.dpi !== 'native' && S.dpi !== 'custom' && g.eff < S.dpi * 0.995) {
         // the chosen resolution is not possible at this size: move to the best one that is
         var best = opts.filter(fits)[0];
         if (best && best !== S.dpi) {
@@ -1360,7 +1382,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     if (r.texture && r.texture.opacity > 0) o.push('Texture "' + r.texture.name + '" multiplied under the artwork, ' + fuu(r.texture.scale) + ' wide, ' + (r.texture.mode === 'mirror' ? 'mirrored' : 'repeated') + ', opacity ' + fmt(r.texture.opacity) + '%');
     return o;
   }
-  function curDpi(g) { return S.dpi === 'native' ? Math.min(600, Math.floor(g.eff * 100) / 100) : S.dpi; }
+  function curDpi(g) { return S.dpi === 'native' ? Math.min(600, Math.floor(g.eff * 100) / 100) : S.dpi === 'custom' ? S.customDpi : S.dpi; }
   function setIfIdle(id, v) { var el = $(id); if (document.activeElement !== el) el.value = v; }
   function sliderPos(v, lo, hi) { return Math.round((v - lo) / (hi - lo) * 1000); }
   function refreshUI() {
@@ -1392,8 +1414,9 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     refreshHsl(); refreshTex();
     $('seams').parentNode.hidden = r.tile === 'off';
     if (!ok) { $('rd').innerHTML = ''; $('bProof').disabled = true; $('bPrint').disabled = true; return; }
-    var g = G(), nat = S.dpi === 'native', dpiNow = curDpi(g);
-    var good = nat ? g.eff >= cfg.min_dpi : g.eff >= S.dpi * 0.995;
+    var g = G(), nat = S.dpi === 'native', cus = S.dpi === 'custom', dpiNow = curDpi(g);
+    var good = cus ? S.customDpi >= 36 && S.customDpi <= 600 : nat ? g.eff >= cfg.min_dpi : g.eff >= S.dpi * 0.995;
+    var enlarged = cus && g.eff < S.customDpi * 0.995;
     var bigPx = Math.round(g.jw / 2.54 * dpiNow) * Math.round(g.jh / 2.54 * dpiNow), tooBig = bigPx > 600e6;
     // size controls
     var tiled = r.tile !== 'off';
@@ -1417,15 +1440,19 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     // readout
     $('rd').innerHTML = '<span>' + fu(g.jw) + ' × ' + fuu(g.jh) + '</span><span class="dim">artwork ' + fuu(r.art_w) + ' wide</span>' +
       (edits.length ? '<span class="pill edit">Edited</span>' : '') +
-      '<span class="pill ' + (good ? 'good' : 'bad') + '">' + (good ? '✓ ' + (nat ? Math.floor(g.eff) + ' dpi (image default)' : S.dpi + ' dpi') : 'Max ' + Math.floor(g.eff) + ' dpi') + '</span>';
+      '<span class="pill ' + (good ? 'good' : 'bad') + '">' + (good ? '✓ ' + (nat ? Math.floor(g.eff) + ' dpi (image default)' : cus ? S.customDpi + ' dpi' + (enlarged ? ' (enlarged)' : '') : S.dpi + ' dpi') : 'Max ' + Math.floor(g.eff) + ' dpi') + '</span>';
     // resolution
     $('dpiChips').innerHTML = cfg.dpi_options.map(function (d) {
       var can = g.eff >= d * 0.995;
       return '<button class="chip" data-d="' + d + '" aria-pressed="' + (S.dpi === d) + '" aria-disabled="' + (!can) + '">' + d + ' dpi</button>';
-    }).join('') + '<button class="chip" data-d="native" aria-pressed="' + nat + '" title="Print at the artwork\'s own resolution at this size, with no stretching or squeezing">Image default</button>';
+    }).join('') + '<button class="chip" data-d="native" aria-pressed="' + nat + '" title="Print at the artwork\'s own resolution at this size, with no stretching or squeezing">Image default</button>' +
+      '<button class="chip" data-d="custom" aria-pressed="' + cus + '" title="Choose any resolution. A small image is enlarged to fit.">Custom dpi</button>';
+    $('customDpi').hidden = !cus; setIfIdle('cdpi', S.customDpi); setIfIdle('cdpiS', S.customDpi);
     var tw = Math.round(g.jw / 2.54 * dpiNow), th = Math.round(g.jh / 2.54 * dpiNow);
     $('resInfo').className = 'info' + (good && !tooBig ? '' : ' bad');
     $('resInfo').textContent = tooBig ? 'That print file would be ' + num(bigPx / 1e6) + ' megapixels, which is too big to make safely. Choose a lower resolution, or make the artwork smaller on the wall.'
+      : cus ? (enlarged ? 'Custom: ' + S.customDpi + ' dpi. The artwork itself only gives about ' + Math.floor(g.eff) + ' dpi here, so it is enlarged to ' + num(tw) + ' × ' + num(th) + ' px. A sharp texture blended on top keeps the detail crisp.'
+              : 'Custom: ' + S.customDpi + ' dpi. Print file ' + num(tw) + ' × ' + num(th) + ' px. The artwork gives up to ' + Math.floor(g.eff) + ' dpi here.')
       : good && nat ? 'Image default: ' + (Math.floor(g.eff * 100) / 100) + ' dpi, the artwork\'s own resolution at this size. Print file ' + num(tw) + ' × ' + num(th) + ' px, no resampling.'
       : good
       ? 'Print file ' + num(tw) + ' × ' + num(th) + ' px. At this size the artwork gives up to ' + Math.floor(g.eff) + ' dpi.'
@@ -1434,7 +1461,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     $('logoChips').innerHTML = lg.map(function (l) { return '<button class="chip" data-l="' + esc(l.id) + '" aria-pressed="' + (S.logo === l.id) + '">' + esc(l.name) + '</button>'; }).join('');
     $('logoWrap').hidden = !cfg.logos.length;
     $('bProof').disabled = false;
-    $('bPrint').disabled = !(good && !tooBig && dpiNow >= cfg.min_dpi && S.approved);
+    $('bPrint').disabled = !(good && !tooBig && (cus || dpiNow >= cfg.min_dpi) && S.approved);
   }
 
   /* ------------------------------------------------ texture layer */
@@ -1731,8 +1758,24 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
   $('resetColour').addEventListener('click', function () { S.r.colour = neutralColour(); update(); });
   $('dpiChips').addEventListener('click', function (e) {
     var b = e.target.closest('.chip'); if (!b) return;
-    S.dpi = b.dataset.d === 'native' ? 'native' : parseInt(b.dataset.d, 10); S.autoNative = false; store('dpi', S.dpi); update();
+    var d = b.dataset.d; S.autoNative = false;
+    if (d === 'native' || d === 'custom') S.dpi = d; else S.dpi = parseInt(d, 10);
+    if (d !== 'custom') store('dpi', S.dpi);
+    update();
   });
+  function setCustomDpi(v) { if (!isFinite(v)) return; S.customDpi = Math.min(600, Math.max(36, Math.round(v))); update(); }
+  $('cdpi').addEventListener('input', function () { var v = parseFloat(this.value); if (isFinite(v) && v >= 36) setCustomDpi(v); });
+  $('cdpi').addEventListener('change', function () { setCustomDpi(parseFloat(this.value) || 300); $('cdpi').value = S.customDpi; });
+  $('cdpiS').addEventListener('input', function () { setCustomDpi(+this.value); });
+  function showOriginal(on) {
+    if (!S) return;
+    if (on) { $('ovImg').src = S.art.preview; $('ovTitle').textContent = S.art.name + (S.art.material ? ' (' + S.art.material + ')' : '') + ' · original artwork, no edits · ' + num(S.art.w) + ' × ' + num(S.art.h) + ' px'; }
+    $('origView').hidden = !on;
+  }
+  $('origBtn').addEventListener('click', function () { showOriginal(true); });
+  $('ovX').addEventListener('click', function () { showOriginal(false); });
+  $('origView').addEventListener('click', function (e) { if (e.target === $('origView')) showOriginal(false); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('origView').hidden) { showOriginal(false); e.stopPropagation(); } }, true);
   $('logoChips').addEventListener('click', function (e) {
     var b = e.target.closest('.chip'); if (!b) return; S.logo = b.dataset.l; store('logo', S.logo); update();
   });
@@ -1811,7 +1854,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
              texture: r.texture ? { id: r.texture.id, scale: r.texture.scale, mode: r.texture.mode, opacity: r.texture.opacity } : null };
   }
   function payload() {
-    return { artwork_id: S.art.id, wall_w: S.wallW, wall_h: S.wallH, allowance: S.allowance, dpi: S.dpi, logo: S.logo, unit: UNIT,
+    return { artwork_id: S.art.id, wall_w: S.wallW, wall_h: S.wallH, allowance: S.allowance, dpi: S.dpi === 'custom' ? S.customDpi : S.dpi, dpi_override: S.dpi === 'custom', show_original: $('showOrig').checked, logo: S.logo, unit: UNIT,
              recipe: recipePayload(), approved: S.approved, client_ref: $('client').value.trim(), created_by: $('who').value.trim() };
   }
   $('bProof').addEventListener('click', async function () {
@@ -1841,7 +1884,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     var rows = [['Design', a.name + (a.material ? ' (' + a.material + ')' : '')],
       ['Wall', fu(S.wallW) + ' × ' + fu(S.wallH) + ' ' + UNIT + ' + ' + fuu(S.allowance)],
       ['Print size', fu(g.jw) + ' × ' + fuu(g.jh) + (UNIT === 'in' ? ' (' + fmt(g.jw) + ' × ' + fmt(g.jh) + ' cm)' : '')],
-      ['Resolution', (S.dpi === 'native' ? 'Image default, ' + fmt(Math.round(dp * 100) / 100) : dp) + ' dpi (' + num(tw) + ' × ' + num(th) + ' px)'],
+      ['Resolution', (S.dpi === 'native' ? 'Image default, ' + fmt(Math.round(dp * 100) / 100) : S.dpi === 'custom' ? 'Custom ' + dp : dp) + ' dpi (' + num(tw) + ' × ' + num(th) + ' px)' + (S.dpi === 'custom' && g.eff < dp * 0.995 ? ', enlarged from about ' + Math.floor(g.eff) + ' dpi' : '')],
       ['Artwork', fu(r.art_w) + ' × ' + fuu(g.ah) + ' on the wall'],
       ['Edits', edits.length ? edits.join('; ') : 'None (original artwork)'],
       ['Proof', 'Approved by the client']];

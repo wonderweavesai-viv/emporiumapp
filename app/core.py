@@ -233,7 +233,7 @@ def is_edited(r):
     return bool(describe_edits(r))
 
 
-def make_proof_pdf(region, design, material, jw, jh, logo_path=None, edits=None, unit="cm") -> bytes:
+def make_proof_pdf(region, design, material, jw, jh, logo_path=None, edits=None, unit="cm", original_path=None) -> bytes:
     """One A4 page: the wall picture (a PIL image already rendered from the recipe) to scale, dimension lines,
     caption, a line listing any edits, and an optional logo."""
     buf = io.BytesIO()
@@ -275,11 +275,30 @@ def make_proof_pdf(region, design, material, jw, jh, logo_path=None, edits=None,
             text = text[:-2]
         c.drawString(24, 24, text if text == "Edited version: " + ", ".join(edits) else text.rstrip(", ") + "...")
 
+    logo_top = 0
     if logo_path:
         with Image.open(logo_path) as logo:
             lw = 62.0
             lh = lw * logo.height / logo.width
             c.drawImage(ImageReader(logo.convert("RGBA")), A4_W - 24 - lw, 14, lw, lh, mask="auto")
+            logo_top = 14 + lh
+
+    if original_path:   # a small picture of the whole, unedited artwork, so the client can see what the wall is cut from
+        with Image.open(original_path) as og:
+            og = og.convert("RGB")
+            ybase = max(62, logo_top + 14)
+            box_w, box_h = 100.0, max(40.0, 160.0 - ybase)
+            k = min(box_w / og.width, box_h / og.height)
+            ow, oh = og.width * k, og.height * k
+            ox = A4_W - 24 - ow
+            c.drawImage(ImageReader(og), ox, ybase, ow, oh)
+            c.setStrokeColorRGB(0.6, 0.6, 0.6)
+            c.setLineWidth(0.4)
+            c.rect(ox, ybase, ow, oh)
+            c.setFillColorRGB(0.35, 0.35, 0.35)
+            c.setFont("Helvetica", 7)
+            c.drawRightString(A4_W - 24, ybase + oh + 4, "Original artwork")
+            c.setFillColorRGB(0, 0, 0)
     c.showPage()
     c.save()
     return buf.getvalue()

@@ -171,6 +171,33 @@ def run():
         check(job["status"] == "done" and job["result"]["px"] == [1200, 1600], f"image default file has no resampling {job['result']['px']}")
         check("own resolution" in (out / job["result"]["folder"] / "job.txt").read_text(), "job sheet says image default")
 
+        print("Custom dpi and the original on the proof")
+        low = dict(payload, dpi=200, recipe={})
+        st, j, _ = c.call("POST", "/api/print", low)
+        check(st == 400 and "enough pixels" in j["error"], "200 dpi is refused when the artwork only gives 101 dpi")
+        st, job, _ = c.call("POST", "/api/print", dict(low, dpi_override=True))
+        check(st == 202 and job["dpi"] == 200 and job["dpi_mode"] == "custom", "the same request goes through when the dpi is overridden")
+        for _ in range(240):
+            job = c.call("GET", "/api/jobs/" + job["id"])[1]
+            if job["status"] in ("done", "error"):
+                break
+            time.sleep(0.5)
+        check(job["status"] == "done" and job["result"]["px"] == [2362, 3150], f"enlarged print file has the pixels asked for {job['result']['px']}")
+        check("RESOLUTION OVERRIDE" in (out / job["result"]["folder"] / "job.txt").read_text(), "job sheet records the override")
+        check(c.call("POST", "/api/print", dict(low, dpi=700, dpi_override=True))[0] == 400, "dpi stays between 36 and 600 even when overridden")
+        import shutil as _sh, subprocess as _sp
+        def images_in(pdf_bytes):
+            f = home / "p.pdf"
+            f.write_bytes(pdf_bytes)
+            r = _sp.run(["pdfimages", "-list", str(f)], capture_output=True, text=True)
+            return len(r.stdout.strip().splitlines()) - 2
+        if _sh.which("pdfimages"):
+            without = images_in(c.call("POST", "/api/proof", payload)[1])
+            with_o = images_in(c.call("POST", "/api/proof", dict(payload, show_original=True))[1])
+            check(with_o == without + 1, "proof shows the original artwork when asked")
+        else:
+            check(len(c.call("POST", "/api/proof", dict(payload, show_original=True))[1]) > len(c.call("POST", "/api/proof", payload)[1]), "proof shows the original artwork when asked")
+
         print("Texture layer")
         tdir = home / "textures"
         (tdir / "Paper").mkdir(parents=True)

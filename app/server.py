@@ -198,7 +198,8 @@ def process_job(job):
     job.update(status="running", progress="Preparing the proof")
     save_job(job)
     region = core.proof_region(preview_path(art["id"]), recipe, jw, jh, tex_path)
-    proof = core.make_proof_pdf(region, art["name"], art["material"], jw, jh, logo_path(job.get("logo")), edits, unit)
+    proof = core.make_proof_pdf(region, art["name"], art["material"], jw, jh, logo_path(job.get("logo")), edits, unit,
+                                preview_path(art["id"]) if job.get("show_original") else None)
     proof_path = folder / f"{stem}_{size_tag}_proof.pdf"
     proof_path.write_bytes(proof)
 
@@ -225,6 +226,9 @@ def process_job(job):
         f" = {core.fmt(jw)} x {core.fmt(jh)} cm"
         + (f" ({core.dim(jw, 'in')} x {core.dim(jh, 'in')})" if unit == "in" else ""),
         f"Print file: {px_w} x {px_h} px at {dpi:g} dpi" + (" (the artwork's own resolution at this size)" if job.get("dpi_mode") == "native" else ""),
+        *([f"RESOLUTION OVERRIDE: the artwork itself only gives {job['source_dpi']:g} dpi at this size and was enlarged to {dpi:g} dpi "
+           "(chosen by the sales person)."] if job.get("dpi_mode") == "custom" and dpi > job.get("source_dpi", 0) * 1.005 else []),
+        f"Original artwork shown on the proof: {'yes' if job.get('show_original') else 'no'}",
         f"Artwork width on the wall: {core.fmt(round(recipe['art_w'], 1))} cm"
         + (f" ({core.dim(recipe['art_w'], 'in')})" if unit == "in" else "") + f", position {core.fmt(round(recipe['off_x'], 1))} / "
         f"{core.fmt(round(recipe['off_y'], 1))} cm from the artwork's top-left (master {art['w']} x {art['h']} px)",
@@ -678,7 +682,8 @@ class Handler(BaseHTTPRequestHandler):
         art, p, jw, jh, recipe = self.common(data)
         region = core.proof_region(preview_path(art["id"]), recipe, jw, jh, texture_file(recipe))
         pdf = core.make_proof_pdf(region, art["name"], art["material"], jw, jh, logo_path(data.get("logo")),
-                                  core.describe_edits(recipe, p["unit"]), p["unit"])
+                                  core.describe_edits(recipe, p["unit"]), p["unit"],
+                                  preview_path(art["id"]) if data.get("show_original") else None)
         stem = core.safe(art["name"]) + (f"_{core.safe(art['material'])}" if art["material"] else "")
         name = f"{stem}_{core.fmt(jw)}x{core.fmt(jh)}cm_proof.pdf"
         (OUT / "Proofs").mkdir(parents=True, exist_ok=True)
@@ -691,19 +696,20 @@ class Handler(BaseHTTPRequestHandler):
         native = bool(p.get("dpi_native"))
         sup = core.eff_dpi(art["w"], recipe["art_w"])
         dpi = p.get("dpi")
+        override = bool(data.get("dpi_override")) and not native and bool(dpi)   # custom dpi: enlarge a small image on purpose
         if native:   # "Image default": print at the artwork's own resolution, so nothing is stretched or squeezed
             dpi = min(600.0, int(sup * 100) / 100.0)
         if not dpi:
             raise ValueError("Choose a print resolution (dpi).")
         if not data.get("approved"):
             raise ValueError("Tick \"Client approved the proof\" before sending to print.")
-        if dpi < CFG["min_dpi"]:
+        if dpi < CFG["min_dpi"] and not override:
             raise ValueError(f"The lowest allowed resolution is {CFG['min_dpi']} dpi.")
         tw, th = core.target_px(jw, jh, dpi)
         if tw * th > MAX_PRINT_PIXELS:
             raise ValueError(f"That print file would be {tw * th / 1e6:,.0f} megapixels, which is too big to make safely. "
                              "Choose a lower resolution, or make the artwork smaller on the wall.")
-        if sup < dpi * 0.995:
+        if sup < dpi * 0.995 and not override:
             if sup < CFG["min_dpi"]:
                 raise ValueError(f"The artwork does not have enough pixels at this size (about {int(sup)} dpi). "
                                  "Make the artwork smaller on the wall, use a smaller wall or choose another design.")
@@ -712,7 +718,8 @@ class Handler(BaseHTTPRequestHandler):
         job = create_job({
             "artwork_id": art["id"], "artwork_name": art["name"], "material": art["material"],
             "wall_w": p["wall_w"], "wall_h": p["wall_h"], "allowance": p["allowance"],
-            "recipe": recipe, "unit": p["unit"], "dpi": dpi, "dpi_mode": "native" if native else "fixed", "logo": data.get("logo") or "",
+            "recipe": recipe, "unit": p["unit"], "dpi": dpi, "dpi_mode": "native" if native else "custom" if override else "fixed", "source_dpi": round(sup, 2),
+            "show_original": bool(data.get("show_original")), "logo": data.get("logo") or "",
             "created_by": str(data.get("created_by", ""))[:60], "client_ref": str(data.get("client_ref", ""))[:120],
         })
         JOBQ.put(job["id"])
