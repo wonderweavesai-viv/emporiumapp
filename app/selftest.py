@@ -242,7 +242,8 @@ def run():
         check(sizes == [(x1 - x0, 1512) for x0, x1 in want], f"panel files have exactly the planned pixel sizes {sizes}")
         with Image.open(next(out.rglob(single["result"]["tiff"]))) as im:
             whole = np.asarray(im).astype(int)
-        check(all(np.abs(a_ - whole[:, x0:x1]).max() <= 2 for a_, (x0, x1) in zip(arrs, want)), "every panel matches the same slice of the single-file print (within 2 of 255, rounding only)")
+        dmax = [int(np.abs(a_ - whole[:, x0:x1]).max()) for a_, (x0, x1) in zip(arrs, want)]
+        check(all(d <= 2 for d in dmax), f"every panel matches the same slice of the single-file print (within 2 of 255, rounding only; got {dmax})")
         ow0, ow1 = want[1][0], want[0][1]
         check(np.abs(arrs[0][:, ow0:] - arrs[1][:, :ow1 - ow0]).max() <= 2 and ow1 - ow0 == 2 * ovp, f"the shared zone is identical on both panels ({ow1 - ow0} px = 4 cm)")
         for key in ("printer_pdf", "installer_card"):
