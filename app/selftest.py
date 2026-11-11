@@ -198,6 +198,66 @@ def run():
         else:
             check(len(c.call("POST", "/api/proof", dict(payload, show_original=True))[1]) > len(c.call("POST", "/api/proof", payload)[1]), "proof shows the original artwork when asked")
 
+        print("Panels")
+        plan = lambda **k: c.call("POST", "/api/panels", dict({"wall_w": 500, "wall_h": 300, "allowance": 10, "material": 137, "margin": 10, "overlap": 2}, **k))
+        st, pl, _ = plan()
+        check(st == 200 and pl["count"] == 5 and [round(q["w"], 1) for q in pl["panels"]] == [104, 106, 106, 106, 104] and pl["height"] == 310,
+              "500 x 300 wall + 10 cm allowance on 137 cm material with 10 cm unprinted: 5 panels, 106 cm in the middle")
+        st, pl, _ = plan(allowance=0, margin=0)
+        check(pl["count"] == 4 and [round(q["w"], 1) for q in pl["panels"]] == [127, 129, 129, 127], "no allowance, full roll: 4 panels of 125 + 2 each side (127 / 129 / 129 / 127)")
+        check(plan(overlap=0.5)[0] == 400 and plan(overlap=11)[0] == 400, "overlap stays between 1 and 10 cm")
+        check(plan(allowance=60)[0] == 400, "allowance stays within 50 cm")
+        check(plan(count=3, allowance=0, margin=0)[0] == 400, "fewer panels than the material allows is refused")
+        check(plan(count=6, allowance=0, margin=0)[1]["count"] == 6, "more panels than needed is allowed")
+        check(plan(wall_w=100)[1]["needed"] is False, "a wall that fits the roll needs no panels")
+        check(plan(material=10)[0] == 400, "a silly material width is refused")
+        pdata = dict(payload, recipe={}, dpi=96, wall_w=20, wall_h=30)
+        pset = {"material": 25, "margin": 5, "overlap": 2}
+        check(c.call("POST", "/api/print", dict(pdata, panels=dict(pset, material=137)))[0] == 400, "panels are refused when the wall fits on one roll")
+        def run(body):
+            st, jb, _ = c.call("POST", "/api/print", body)
+            check(st == 202, "print job accepted")
+            for _ in range(300):
+                jb = c.call("GET", "/api/jobs/" + jb["id"])[1]
+                if jb["status"] in ("done", "error"):
+                    break
+                time.sleep(0.5)
+            check(jb["status"] == "done", "job finished")
+            return jb
+        single = run(pdata)
+        pj = run(dict(pdata, panels=pset))
+        res = pj["result"]
+        check(len(res["panels"]) == 2 and res["px"] == [1134, 1512], "panel job made 2 panel files for the whole print area")
+        import panels as pn
+        ovp = round(2 / 2.54 * 96)
+        want = pn.panel_pixels(1134, 2, ovp)
+        folder = out / res["folder"]
+        sizes = []
+        arrs = []
+        for f in res["panels"]:
+            with Image.open(folder / f["name"]) as im:
+                sizes.append(im.size)
+                check(im.info.get("dpi", (0, 0))[0] in (96, 95.9999, 96.0), "panel carries 96 dpi")
+                arrs.append(np.asarray(im).astype(int))
+        check(sizes == [(x1 - x0, 1512) for x0, x1 in want], f"panel files have exactly the planned pixel sizes {sizes}")
+        with Image.open(next(out.rglob(single["result"]["tiff"]))) as im:
+            whole = np.asarray(im).astype(int)
+        check(all(np.abs(a_ - whole[:, x0:x1]).max() <= 2 for a_, (x0, x1) in zip(arrs, want)), "every panel matches the same slice of the single-file print (within 2 of 255, rounding only)")
+        ow0, ow1 = want[1][0], want[0][1]
+        check(np.abs(arrs[0][:, ow0:] - arrs[1][:, :ow1 - ow0]).max() <= 2 and ow1 - ow0 == 2 * ovp, f"the shared zone is identical on both panels ({ow1 - ow0} px = 4 cm)")
+        for key in ("printer_pdf", "installer_card"):
+            check((folder / res[key]).read_bytes()[:4] == b"%PDF", f"{key} made")
+        if _sh.which("pdftotext"):
+            txt = _sp.run(["pdftotext", str(folder / res["installer_card"]), "-"], capture_output=True, text=True).stdout
+            check("Panel layout for installation" in txt and "LEFT to RIGHT" in txt, "installer card has the layout text")
+            txt = _sp.run(["pdftotext", str(folder / res["printer_pdf"]), "-"], capture_output=True, text=True).stdout
+            check("Print instructions" in txt and res["panels"][0]["name"][:20] in txt, "printer PDF lists the files")
+        check("PANELS: 2 vertical panels" in (folder / "job.txt").read_text(), "job sheet describes the panels")
+        lj = run(dict(pdata, panels=dict(pset, label=True)))
+        with Image.open(out / lj["result"]["folder"] / lj["result"]["panels"][0]["name"]) as im:
+            check(im.size[1] == 1512 + round(2.5 / 2.54 * 96), f"optional label strip adds {im.size[1] - 1512} px below the artwork")
+        check(c.call("POST", "/api/print", dict(pdata, panels=dict(pset, overlap=20)))[0] == 400, "print refuses a bad overlap")
+
         print("Texture layer")
         tdir = home / "textures"
         (tdir / "Paper").mkdir(parents=True)

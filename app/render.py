@@ -282,11 +282,14 @@ def multiply_texture(strip, unit, cols, spec, y0, y1):
     return Image.fromarray(np.rint(a).clip(0, 255).astype(np.uint8), "RGB")
 
 
-def render(src, recipe, jw, jh, out_w, out_h, strip_px=4_000_000, progress=None, colour=True, texture=None):
+def render(src, recipe, jw, jh, out_w, out_h, strip_px=4_000_000, progress=None, colour=True, texture=None, x_range=None):
     """Render the wall (jw x jh cm) from the image `src` into an out_w x out_h RGB picture.
 
     The picture is built in horizontal strips. Each strip is resampled straight from the source with Pillow's
     `box` argument, which lets the filter see the neighbouring rows, so there are no seams between strips."""
+    x0w, x1w = x_range or (0, out_w)       # panels: only these columns of the full-width picture are made
+    win = x1w - x0w
+    g0, g1 = (out_w - x1w, out_w - x0w) if recipe.get("flip_h") else (x0w, x1w)    # the same window before mirroring
     sw, sh = src.size
     aw = recipe["art_w"]
     ah = aw * sh / sw
@@ -305,8 +308,8 @@ def render(src, recipe, jw, jh, out_w, out_h, strip_px=4_000_000, progress=None,
 
         def get(y0, y1):
             t0, t1 = bt + bh * y0 / out_h, bt + bh * y1 / out_h
-            box = (_clamp(bl, 0, sw), _clamp(t0, 0, sh), _clamp(bl + bw, 0, sw), _clamp(t1, 0, sh))
-            return src.resize((out_w, y1 - y0), Image.LANCZOS, box=box)
+            box = (_clamp(bl + bw * g0 / out_w, 0, sw), _clamp(t0, 0, sh), _clamp(bl + bw * g1 / out_w, 0, sw), _clamp(t1, 0, sh))
+            return src.resize((win, y1 - y0), Image.LANCZOS, box=box)
     else:
         uw, uh = max(1, round(aw * pxx)), max(1, round(ah * pxy))
         unit = np.asarray(src.resize((uw, uh), Image.LANCZOS))
@@ -315,13 +318,13 @@ def render(src, recipe, jw, jh, out_w, out_h, strip_px=4_000_000, progress=None,
             uh, uw = unit.shape[:2]
         ox, oy = round(recipe["off_x"] * pxx), round(recipe["off_y"] * pxy)
 
-        cols = _tile_index(ox, out_w, uw, tile == "mirror")
+        cols = _tile_index(ox + g0, win, uw, tile == "mirror")
         dnum = int(round(float(recipe.get("drop") or 0) * 100))     # custom drop, in 1/10000 of a repeat
 
         def get(y0, y1):
             if tile in ("custom_v", "custom_h"):
                 ys = oy + y0 + np.arange(y1 - y0, dtype=np.int64)
-                xs = ox + np.arange(out_w, dtype=np.int64)
+                xs = ox + g0 + np.arange(win, dtype=np.int64)
                 if tile == "custom_v":       # each next column drops a little more
                     shift = (xs // uw) * dnum * uh // 10000 % uh
                     return Image.fromarray(unit[(ys[:, None] - shift[None, :]) % uh, (xs % uw)[None, :]], "RGB")
@@ -334,10 +337,10 @@ def render(src, recipe, jw, jh, out_w, out_h, strip_px=4_000_000, progress=None,
     tunit = tcols = None
     if texture is not None and tspec and tspec.get("opacity", 0) > 0:
         tunit = texture_unit(texture, tspec, pxx, pxy)
-        tcols = _tile_index(0, out_w, tunit.shape[1], tspec["mode"] == "mirror")
+        tcols = _tile_index(x0w, win, tunit.shape[1], tspec["mode"] == "mirror")
 
-    final = Image.new("RGB", (out_w, out_h))
-    step = max(16, strip_px // max(1, out_w))
+    final = Image.new("RGB", (win, out_h))
+    step = max(16, strip_px // max(1, win))
     for y0 in range(0, out_h, step):
         y1 = min(out_h, y0 + step)
         strip = get(out_h - y1, out_h - y0) if flip_v else get(y0, y1)

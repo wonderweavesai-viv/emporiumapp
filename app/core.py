@@ -50,8 +50,8 @@ def check_params(p: dict):
         raise ValueError("Wall width and height are required numbers.")
     if not (20 <= out["wall_w"] <= 1500 and 20 <= out["wall_h"] <= 1500):
         raise ValueError("Wall width and height should be between 20 and 1500 cm.")
-    if not (0 <= out["allowance"] <= 100):
-        raise ValueError("Allowance should be between 0 and 100 cm.")
+    if not (0 <= out["allowance"] <= 50):
+        raise ValueError("Allowance should be between 0 and 50 cm.")
     out["unit"] = "in" if p.get("unit") == "in" else "cm"
     if p.get("dpi") == "native":        # "Image default": the artwork's own resolution at this size
         out["dpi_native"] = True
@@ -314,8 +314,11 @@ def proof_region(preview_path: Path, recipe, jw, jh, texture_path=None):
         return render.render(pv, recipe, jw, jh, max(1, round(jw * k)), max(1, round(jh * k)), texture=tex)
 
 
-def make_print_tiff(master_path: Path, recipe, jw, jh, dpi, out_path: Path, progress=None, texture_path=None):
-    """Render the master through the recipe at the exact print size and write an LZW TIFF."""
+def make_print_tiff(master_path: Path, recipe, jw, jh, dpi, out_path: Path, progress=None, texture_path=None,
+                    x_range=None, label=None, label_cm=2.5):
+    """Render the master through the recipe at the exact print size and write an LZW TIFF.
+    x_range = (x0, x1) makes only those pixel columns of the full-width picture (one panel).
+    label = text for a white strip added at the bottom (outside the artwork, to be trimmed off)."""
     tw, th = target_px(jw, jh, dpi)
     with Image.open(master_path) as im:
         icc = im.info.get("icc_profile")
@@ -328,10 +331,21 @@ def make_print_tiff(master_path: Path, recipe, jw, jh, dpi, out_path: Path, prog
             im = im.convert("RGB")
             icc = None  # profile no longer matches after conversion
         tex = textures_mod.load(texture_path) if texture_path and recipe.get("texture") else None
-        out = render.render(im, recipe, jw, jh, tw, th, progress=progress, texture=tex)
+        out = render.render(im, recipe, jw, jh, tw, th, progress=progress, texture=tex, x_range=x_range)
     del im
+    if label:
+        strip_h = max(40, round(label_cm / 2.54 * dpi))
+        canvas_ = Image.new("RGB", (out.width, out.height + strip_h), (255, 255, 255))
+        canvas_.paste(out, (0, 0))
+        del out
+        from PIL import ImageDraw, ImageFont
+        d = ImageDraw.Draw(canvas_)
+        font = ImageFont.load_default(size=max(14, int(strip_h * 0.5)))
+        d.text((int(strip_h * 0.3), canvas_.height - strip_h + int(strip_h * 0.2)), label, fill=(0, 0, 0), font=font)
+        out = canvas_
     kwargs = {"format": "TIFF", "compression": "tiff_lzw", "dpi": (dpi, dpi)}
     if icc:
         kwargs["icc_profile"] = icc
+    art_w_px = out.width
     out.save(out_path, **kwargs)
-    return tw, th
+    return (art_w_px if x_range else tw), th

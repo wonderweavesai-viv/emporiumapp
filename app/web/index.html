@@ -110,6 +110,12 @@ input.txt { font-family: var(--font-body); font-weight: 400; }
 .chips .chip { text-transform: none; padding: 6px 13px; font-size: 13px; }
 .chips .chip[aria-disabled="true"] { opacity: .45; text-decoration: line-through; }
 input[type="range"] { width: 100%; accent-color: var(--accent); height: 22px; margin: 0; cursor: pointer; }
+.pmode { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.pmode button { text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: 600 13px var(--font-data); cursor: pointer; line-height: 1.35; }
+.pmode button small { display: block; font-weight: 400; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+.pmode button[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.pbox { border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: grid; gap: 10px; background: var(--bg); }
+.pbox .sumline { font: 600 13px/1.45 var(--font-data); }
 .info { font: 400 12px/1.5 var(--font-data); color: var(--muted); margin: 6px 0 0; }
 .info.bad { color: var(--bad); }
 .actions { display: flex; gap: 10px; }
@@ -317,12 +323,14 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
         <div class="pane on" id="pane-layout">
         <section class="pgrp"><h3>Wall size</h3>
           <div class="blk">
+            <p class="info" style="margin:0">Width and height of the <b>finished wall</b>, not the print.</p>
             <div class="fields">
               <label><span class="ln">Width (<span class="uu">cm</span>)</span><input id="ww" type="number" inputmode="decimal" min="20" step="any"></label>
               <label><span class="ln">Height (<span class="uu">cm</span>)</span><input id="wh" type="number" inputmode="decimal" min="20" step="any"></label>
-              <label><span class="ln">Allowance (<span class="uu">cm</span>)</span><input id="al" type="number" inputmode="decimal" min="0" step="any"></label>
+              <label><span class="ln">Margins (<span class="uu">cm</span>)</span><input id="al" type="number" inputmode="decimal" min="0" max="50" step="any"></label>
             </div>
-            <p class="info" id="printSize" style="margin:-6px 0 0"></p>
+            <div class="chips" id="alChips" aria-label="Artwork margins"></div>
+            <p class="info" id="printSize" style="margin:0"></p>
           </div>
         </section>
 
@@ -468,6 +476,24 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
 
         <section class="pgrp"><h3>Print</h3>
           <div class="blk">
+            <div>
+              <span class="lbl">Print file</span>
+              <div class="pmode" id="pmode">
+                <button type="button" data-m="single" aria-pressed="true">Single file<small>One image for the whole print</small></button>
+                <button type="button" data-m="panels" aria-pressed="false">Print panels<small>Vertical strips, ready for the printer</small></button>
+              </div>
+              <div class="pbox" id="pbox" hidden style="margin-top:10px">
+                <div class="fields two">
+                  <label><span class="ln">Material width (<span class="uu">cm</span>)</span><input id="pmW" type="number" inputmode="decimal" step="any"></label>
+                  <label><span class="ln">Unprinted (<span class="uu">cm</span>)</span><input id="pmM" type="number" inputmode="decimal" step="any"></label>
+                  <label><span class="ln">Overlap per side (<span class="uu">cm</span>)</span><input id="pmO" type="number" inputmode="decimal" step="any"></label>
+                  <label><span class="ln">Number of panels</span><select id="pmN" class="txt" style="height:38px"></select></label>
+                </div>
+                <label class="tog"><input type="checkbox" id="pmL"> Add a panel number strip under each panel (to trim off)</label>
+                <div class="sumline" id="pmSum"></div>
+                <p class="info" id="pmInfo" style="margin:0"></p>
+              </div>
+            </div>
             <div>
               <span class="lbl">Resolution</span>
               <div class="chips" id="dpiChips"></div>
@@ -960,7 +986,34 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     });
     return out;
   }
-  function validWall() { return S && S.wallW >= 20 && S.wallH >= 20 && S.allowance >= 0 && isFinite(S.wallW + S.wallH + S.allowance); }
+  /* ---- print panels: mirror of panels.py plan() */
+  var PM_DEFAULT = (typeof cfg !== 'undefined' && cfg && cfg.panel_defaults) || { material: 137, margin: 10, overlap: 2 };
+  function loadPm() {
+    var d = cfg && cfg.panel_defaults || { material: 137, margin: 10, overlap: 2 }, o = { material: d.material, margin: d.margin, overlap: d.overlap, count: 0, label: false };
+    try { var t = JSON.parse(store('pm') || 'null'); if (t) { ['material', 'margin', 'overlap'].forEach(function (k) { if (isFinite(t[k])) o[k] = t[k]; }); o.label = !!t.label; } } catch (e) {}
+    return o;
+  }
+  function planJS(width, m) {
+    var mat = m.material, mar = m.margin, ov = m.overlap;
+    if (!(isFinite(mat) && isFinite(mar) && isFinite(ov))) return { err: 'Material width, unprinted width and overlap must be numbers.' };
+    if (ov < 1 || ov > 10) return { err: 'Overlap should be between ' + fuu(1) + ' and ' + fuu(10) + ' on each side.' };
+    if (mat < 20 || mat > 500) return { err: 'Material width should be between ' + fuu(20) + ' and ' + fuu(500) + '.' };
+    if (mar < 0 || mar >= mat) return { err: 'The unprinted width has to be smaller than the material width.' };
+    var printable = mat - mar;
+    if (printable <= 2 * ov + 5) return { err: 'The printable width (' + fuu(printable) + ') is too small for that overlap.' };
+    var widest = function (n) { return n === 2 ? width / 2 + ov : width / n + 2 * ov; };
+    var nmin = 1;
+    if (width > printable) { nmin = 0; for (var n = 2; n <= 40; n++) { if (widest(n) <= printable + 1e-9) { nmin = n; break; } } if (!nmin) return { err: 'This wall would need more than 40 panels. Use wider material or a smaller overlap.' }; }
+    var cnt = m.count && m.count >= nmin ? m.count : nmin;
+    var ps = [];
+    for (var i = 0; i < cnt; i++) {
+      var s0 = width * i / cnt, s1 = width * (i + 1) / cnt, l = i > 0 ? ov : 0, r = i < cnt - 1 ? ov : 0;
+      ps.push({ n: i + 1, x0: s0 - l, x1: s1 + r, w: s1 - s0 + l + r, l: l, r: r });
+    }
+    return { count: cnt, min: nmin, needed: cnt > 1, printable: printable, overlap: ov, panels: ps, widest: Math.max.apply(null, ps.map(function (q) { return q.w; })) };
+  }
+  function curPlan() { return S && S.pmode === 'panels' && validWall() ? planJS(S.wallW + S.allowance, S.pm) : null; }
+  function validWall() { return S && S.wallW >= 20 && S.wallH >= 20 && S.allowance >= 0 && S.allowance <= 50 && isFinite(S.wallW + S.wallH + S.allowance); }
 
   // brick and drop layouts (mirrors DROP_MODES in render.py): 'v' = next columns drop down, 'h' = next rows shift sideways
   var DROPS = { brick: { ax: 'h', den: 2, label: 'Brick' }, half_v: { ax: 'v', den: 2, label: 'Half drop (vertical)' }, half_h: { ax: 'h', den: 2, label: 'Half drop (horizontal)' },
@@ -1058,7 +1111,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     browseScroll = $('browse').scrollTop;
     var w = (store('wall') || '').split('x');
     S = { art: art, wallW: parseFloat(w[0]) || 180, wallH: parseFloat(w[1]) || 320, allowance: cfg.allowance,
-          dpi: store('dpi') === 'native' ? 'native' : (parseInt(store('dpi'), 10) || cfg.dpi_options[0]), texList: [], texImg: null, customDpi: 300, logo: store('logo') || '', autoDpi: true,
+          dpi: store('dpi') === 'native' ? 'native' : (parseInt(store('dpi'), 10) || cfg.dpi_options[0]), pmode: 'single', pm: loadPm(), texList: [], texImg: null, customDpi: 300, logo: store('logo') || '', autoDpi: true,
           r: fresh(), hslSel: -1, hslPick: false, hslMask: false, seams: false, compare: false, approved: false, img: new Image(), cssW: 0, cssH: 0 };
     if (S.logo && !cfg.logos.some(function (l) { return l.id === S.logo; })) S.logo = '';
     S.r.art_w = G().cover; centreArt();
@@ -1320,6 +1373,23 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     var o = $('ovl'), r = S.r, w = S.cssW, h = S.cssH, dpr = window.devicePixelRatio || 1;
     if (o.width !== Math.round(w * dpr) || o.height !== Math.round(h * dpr)) { o.width = Math.round(w * dpr); o.height = Math.round(h * dpr); }
     var c = o.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+    var pl = curPlan();
+    if (pl && !pl.err && pl.needed) {
+      var kx = w / g.jw, cols = ['rgba(15,95,95,.14)', 'rgba(230,140,25,.14)'];
+      pl.panels.forEach(function (q) { c.fillStyle = cols[q.n % 2]; c.fillRect(q.x0 * kx, 0, (q.x1 - q.x0) * kx, h); });
+      pl.panels.slice(0, -1).forEach(function (q, i) {
+        var a = (q.x1 - pl.overlap * 2) * kx, b = q.x1 * kx;     // shared zone: from right edge of core+ov
+        var nx = pl.panels[i + 1]; a = nx.x0 * kx; b = q.x1 * kx;
+        c.fillStyle = 'rgba(215,40,40,.35)'; c.fillRect(a, 0, b - a, h);
+        c.strokeStyle = '#fff'; c.lineWidth = 1; c.setLineDash([6, 4]); c.beginPath(); c.moveTo((a + b) / 2, 0); c.lineTo((a + b) / 2, h); c.stroke(); c.setLineDash([]);
+      });
+      var rad = Math.max(11, Math.min(22, w / pl.count / 4));
+      pl.panels.forEach(function (q) {
+        var cx = ((q.x0 + q.l + q.x1 - q.r) / 2) * kx, cy = Math.min(h * 0.14 + rad, h / 2);
+        c.beginPath(); c.arc(cx, cy, rad, 0, 6.2832); c.fillStyle = '#fff'; c.fill(); c.lineWidth = 2; c.strokeStyle = '#0f5f5f'; c.setLineDash([]); c.stroke();
+        c.fillStyle = '#0f5f5f'; c.font = '700 ' + Math.round(rad * 1.1) + 'px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(q.n), cx, cy + 1);
+      });
+    }
     if (!S.seams || r.tile === 'off') return;
     var k = w / g.jw, ky = h / g.jh;
     function line(x1, y1, x2, y2) {
@@ -1387,7 +1457,14 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
   function sliderPos(v, lo, hi) { return Math.round((v - lo) / (hi - lo) * 1000); }
   function refreshUI() {
     var r = S.r, ok = validWall();
-    $('printSize').textContent = ok ? 'Print area ' + fu(S.wallW + S.allowance) + ' × ' + fuu(S.wallH + S.allowance) + ' (wall + allowance)' : 'Enter a wall size of at least ' + fuu(20) + '.';
+    $('printSize').textContent = ok ? 'Print area ' + fu(S.wallW + S.allowance) + ' × ' + fuu(S.wallH + S.allowance) + ' (wall + ' + fuu(S.allowance) + ' artwork margins, split around the wall)' : (S && S.allowance > 50 ? 'Artwork margins can be up to ' + fuu(50) + '.' : 'Enter a wall size of at least ' + fuu(20) + '.');
+    $('alChips').innerHTML = [5, 10, 15, 20, 25, 30].map(function (v) { return '<button class="chip" data-a="' + v + '" aria-pressed="' + (S && Math.abs(S.allowance - v) < 0.005) + '">' + fu(v) + '</button>'; }).join('');
+    $('pmode').querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.m === S.pmode); });
+    $('pbox').hidden = S.pmode !== 'panels';
+    if (S.pmode === 'panels') {
+      ['pmW:material', 'pmM:margin', 'pmO:overlap'].forEach(function (x) { x = x.split(':'); setIfIdle(x[0], fu(S.pm[x[1]])); });
+      $('pmL').checked = !!S.pm.label;
+    }
     ['flipH', 'flipV'].forEach(function (id) { $(id).setAttribute('aria-pressed', id === 'flipH' ? r.flip_h : r.flip_v); });
     $('tileSeg').querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.t === tileFamily(r.tile)); });
     var fam = tileFamily(r.tile); $('dropDir').hidden = !(fam === 'half' || fam === 'quarter' || fam === 'custom'); $('customCtl').hidden = fam !== 'custom';
@@ -1413,7 +1490,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     $('cmp').disabled = colourIsNeutral(r.colour) && hslNeutral(r.hsl) && !r.texture;
     refreshHsl(); refreshTex();
     $('seams').parentNode.hidden = r.tile === 'off';
-    if (!ok) { $('rd').innerHTML = ''; $('bProof').disabled = true; $('bPrint').disabled = true; return; }
+    if (!ok) { $('rd').innerHTML = ''; $('bProof').disabled = true; $('bPrint').disabled = true; if (S.pmode === 'panels') { $('pmSum').textContent = ''; $('pmInfo').textContent = ''; } return; }
     var g = G(), nat = S.dpi === 'native', cus = S.dpi === 'custom', dpiNow = curDpi(g);
     var good = cus ? S.customDpi >= 36 && S.customDpi <= 600 : nat ? g.eff >= cfg.min_dpi : g.eff >= S.dpi * 0.995;
     var enlarged = cus && g.eff < S.customDpi * 0.995;
@@ -1461,7 +1538,25 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     $('logoChips').innerHTML = lg.map(function (l) { return '<button class="chip" data-l="' + esc(l.id) + '" aria-pressed="' + (S.logo === l.id) + '">' + esc(l.name) + '</button>'; }).join('');
     $('logoWrap').hidden = !cfg.logos.length;
     $('bProof').disabled = false;
-    $('bPrint').disabled = !(good && !tooBig && (cus || dpiNow >= cfg.min_dpi) && S.approved);
+    var pl = curPlan(), plOk = true;
+    if (pl) {
+      var sel = $('pmN');
+      if (!pl.err) {
+        var opts = ''; for (var n = Math.max(2, pl.min); n <= Math.min(40, Math.max(pl.min, 2) + 8); n++) opts += '<option value="' + n + '"' + (n === pl.count ? ' selected' : '') + '>' + n + (n === pl.min ? ' (fewest)' : '') + '</option>';
+        if (sel.dataset.k !== pl.min + ':' + pl.count) { sel.innerHTML = opts; sel.dataset.k = pl.min + ':' + pl.count; }
+      }
+      if (pl.err) { plOk = false; $('pmSum').textContent = ''; $('pmInfo').className = 'info bad'; $('pmInfo').textContent = pl.err; }
+      else if (!pl.needed) { plOk = false; $('pmSum').textContent = 'One roll is enough'; $('pmInfo').className = 'info bad'; $('pmInfo').textContent = 'The print area (' + fuu(g.jw) + ') fits within the printable width (' + fuu(pl.printable) + '). Choose "Single file".'; }
+      else {
+        var ws = pl.panels.map(function (q) { return q.w; }), lo2 = Math.min.apply(null, ws), hi2 = Math.max.apply(null, ws), pxw = Math.round(pl.widest / 2.54 * dpiNow), pxh = Math.round(g.jh / 2.54 * dpiNow);
+        if (pxw * pxh > 600e6) plOk = false;
+        $('pmSum').textContent = pl.count + ' panels · ' + (Math.abs(hi2 - lo2) < 0.005 ? fuu(hi2) : fu(hi2) + ' and ' + fuu(lo2)) + ' wide · ' + fuu(g.jh) + ' long';
+        $('pmInfo').className = 'info' + (plOk ? '' : ' bad');
+        $('pmInfo').textContent = plOk ? 'Each panel has ' + fuu(pl.overlap) + ' of extra image on every joining side (' + fuu(pl.overlap * 2) + ' shared with its neighbour). Printable width ' + fuu(pl.printable) + ' of the ' + fuu(S.pm.material) + ' roll. Each file is about ' + num(pxw) + ' × ' + num(pxh) + ' px.'
+          : 'Each panel file would be too big to make safely. Choose a lower resolution.';
+      }
+    }
+    $('bPrint').disabled = !(good && !tooBig && plOk && (cus || dpiNow >= cfg.min_dpi) && S.approved);
   }
 
   /* ------------------------------------------------ texture layer */
@@ -1691,6 +1786,23 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
       update();
     });
   });
+  $('alChips').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    $('al').value = fu(+b.dataset.a); $('al').dispatchEvent(new Event('input'));
+  });
+  $('pmode').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    S.pmode = b.dataset.m; if (S.pmode === 'panels') S.pm.count = 0; update();
+  });
+  [['pmW', 'material'], ['pmM', 'margin'], ['pmO', 'overlap']].forEach(function (x) {
+    $(x[0]).addEventListener('input', function () {
+      var v = fromU(parseFloat(this.value)); S.pm[x[1]] = isFinite(v) ? v : NaN; S.pm.count = 0;
+      if (isFinite(S.pm.material + S.pm.margin + S.pm.overlap)) store('pm', JSON.stringify(S.pm));
+      update();
+    });
+  });
+  $('pmN').addEventListener('change', function () { S.pm.count = parseInt(this.value, 10) || 0; update(); });
+  $('pmL').addEventListener('change', function () { S.pm.label = this.checked; store('pm', JSON.stringify(S.pm)); update(); });
   function bindSize(numId, rngId) {
     $(numId).addEventListener('input', function () { var v = fromU(parseFloat(this.value)); if (isFinite(v) && v > 0) setArtW(v); });
     $(numId).addEventListener('change', function () { update(); $(numId).value = fu(S.r.art_w); });
@@ -1855,7 +1967,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
   }
   function payload() {
     return { artwork_id: S.art.id, wall_w: S.wallW, wall_h: S.wallH, allowance: S.allowance, dpi: S.dpi === 'custom' ? S.customDpi : S.dpi, dpi_override: S.dpi === 'custom', show_original: $('showOrig').checked, logo: S.logo, unit: UNIT,
-             recipe: recipePayload(), approved: S.approved, client_ref: $('client').value.trim(), created_by: $('who').value.trim() };
+             recipe: recipePayload(), panels: S.pmode === 'panels' ? { material: S.pm.material, margin: S.pm.margin, overlap: S.pm.overlap, count: S.pm.count || null, label: !!S.pm.label } : null, approved: S.approved, client_ref: $('client').value.trim(), created_by: $('who').value.trim() };
   }
   $('bProof').addEventListener('click', async function () {
     if (DEMO) { toast('Demo only. The real app makes the client proof PDF here.'); return; }
@@ -1888,6 +2000,14 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
       ['Artwork', fu(r.art_w) + ' × ' + fuu(g.ah) + ' on the wall'],
       ['Edits', edits.length ? edits.join('; ') : 'None (original artwork)'],
       ['Proof', 'Approved by the client']];
+    var pp = curPlan();
+    if (pp && !pp.err) {
+      var i0 = rows.findIndex(function (x) { return x[0] === 'Resolution'; });
+      rows[1] = ['Wall', fu(S.wallW) + ' × ' + fu(S.wallH) + ' ' + UNIT + ' (finished wall) + ' + fuu(S.allowance) + ' artwork margins'];
+      rows.splice(i0, 0, ['Print as', pp.count + ' vertical panels of ' + fuu(pp.widest) + ' at most, ' + fuu(pp.overlap) + ' overlap on each joining side'],
+                  ['Material', fuu(S.pm.material) + ' roll, ' + fuu(S.pm.margin) + ' left unprinted across the width' + (S.pm.label ? ', number strip under each panel' : '')]);
+      rows[i0 + 2] = ['Resolution', rows[i0 + 2][1].replace(/\(.*px\)/, '(' + num(Math.round(pp.widest / 2.54 * dp)) + ' × ' + num(th) + ' px per panel)')];
+    }
     var lg = cfg.logos.filter(function (l) { return l.id === S.logo; })[0]; if (lg) rows.push(['Logo', lg.name]);
     if ($('client').value.trim()) rows.push(['Reference', $('client').value.trim()]);
     $('sumList').innerHTML = rows.map(function (x) { return '<dt>' + esc(x[0]) + '</dt><dd>' + esc(x[1]) + '</dd>'; }).join('');
@@ -1909,6 +2029,8 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     if (DEMO) {
       statusView('work', 'Making the print file', 'Demo: nothing is being created.');
       setTimeout(function () {
+        var dpl = curPlan();
+        if (dpl && !dpl.err) { statusView('ok', 'Panels sent to print (demo)', 'In the real app each of the ' + dpl.count + ' panels is saved as its own TIFF, together with a printer instructions PDF and an installer card PDF.', '<div class="folder">output/2026-10-13/EMP-20261013-001_' + esc(S.art.name.replace(/\s+/g, '-')) + '_panels/</div>'); doneActions(); return; }
         statusView('ok', 'Sent to print (demo)', 'In the real app the TIFF is made from the full-size master with the same settings, saved to the print folder, and a download link is emailed to the printer.', '<div class="folder">output/2026-10-13/EMP-20261013-001_' + esc(S.art.name.replace(/\s+/g, '-')) + '/</div>');
         doneActions();
       }, 3500);
@@ -1936,7 +2058,8 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
           clearInterval(pollTimer);
           var em = j.email || {}, emTxt = em.status === 'off' ? 'Saved to your print folder.' : em.status === 'sent' ? 'Download link emailed to the printer (' + em.to.join(', ') + ').' :
             em.status === 'failed' ? em.note : 'Not emailed: ' + (em.note || 'email is not set up.');
-          statusView('ok', 'Sent to print', 'Job ' + j.id + ', ' + j.result.px[0].toLocaleString('en-US') + ' × ' + j.result.px[1].toLocaleString('en-US') + ' px, ' + j.result.size_mb + ' MB',
+          var pnl = j.result.panels, resTxt = pnl ? 'Job ' + j.id + ', ' + pnl.length + ' panel files, ' + j.result.size_mb + ' MB in all, plus the printer instructions and the installer card' : 'Job ' + j.id + ', ' + j.result.px[0].toLocaleString('en-US') + ' × ' + j.result.px[1].toLocaleString('en-US') + ' px, ' + j.result.size_mb + ' MB';
+          statusView('ok', pnl ? 'Panels sent to print' : 'Sent to print', resTxt,
             '<p id="emNote" style="margin:6px 0">' + esc(emTxt) + '</p><div class="folder">' + esc(j.result.folder) + '</div>' + (OWNER ? '<div class="actions" style="width:100%"><button class="btn" id="reveal">Show in Finder</button></div>' : '') +
             (em.status === 'failed' ? '<div class="actions" style="width:100%"><button class="btn" id="resend">Resend email</button></div>' : ''));
           if ($('reveal')) $('reveal').addEventListener('click', function () { api('api/open', { kind: 'job', folder: j.result.folder }).catch(function (e) { toast(e.message); }); });

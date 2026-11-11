@@ -28,6 +28,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 import core
 import library
+import panels
 import share
 import textures
 
@@ -55,7 +56,8 @@ DEFAULTS = {
     "share_network": False,         # let other computers on your office network open the app
     "access_pin": "",               # required from other computers when sharing is on
     "port": 8080,
-    "allowance_cm": 10,             # added to wall width and height
+    "allowance_cm": 10,             # added to wall width and height (in total)
+    "panel_defaults": {"material": 137, "margin": 10, "overlap": 2},   # starting values for "Print panels"
     "dpi_options": [144, 96],
     "min_dpi": 72,
     "public_url": "",               # only for emailing the printer a download link (see README)
@@ -192,7 +194,8 @@ def process_job(job):
     stem = core.safe(art["name"]) + (f"_{core.safe(art['material'])}" if art["material"] else "") + ("_edited" if edits else "")
     size_tag = f"{core.fmt(jw)}x{core.fmt(jh)}cm"
     dpi_tag = f"{dpi:g}dpi"
-    folder = OUT / day / f"{job['id']}_{stem}_{size_tag}_{dpi_tag}"
+    pset = job.get("panels")
+    folder = OUT / day / f"{job['id']}_{stem}_{size_tag}_{dpi_tag}{'_panels' if pset else ''}"
     folder.mkdir(parents=True, exist_ok=True)
 
     job.update(status="running", progress="Preparing the proof")
@@ -213,8 +216,39 @@ def process_job(job):
             job["progress"] = f"Making the print file ({int(f * 100)}%)"
             save_job(job)
 
-    tiff_path = folder / f"{stem}_{size_tag}_{dpi_tag}_print.tiff"
-    px_w, px_h = core.make_print_tiff(Path(art["path"]), recipe, jw, jh, dpi, tiff_path, progress, tex_path)
+    files, extra_pdfs, pl = [], [], None
+    if pset:
+        pl = panels.plan(jw, pset["material"], pset["margin"], pset["overlap"], pset["count"])
+        tw, th = core.target_px(jw, jh, dpi)
+        cols = panels.panel_pixels(tw, pl["count"], round(pl["overlap"] / 2.54 * dpi))
+        for i, (x0, x1) in enumerate(cols):
+            name = panels.panel_filename(stem, i + 1, pl["count"], pl["panels"][i]["w"], jh, dpi)
+            label = (f"{job['id']}  PANEL {i + 1} OF {pl['count']}  (trim off this strip)") if pset.get("label") else None
+            base = i / pl["count"]
+
+            def pprogress(f, base=base, n=pl["count"], i=i):
+                job["progress"] = f"Making panel {i + 1} of {n} ({int(f * 100)}%)"
+                if f - last[0] >= 0.1 or f >= 1:
+                    last[0] = f
+                    save_job(job)
+            last[0] = 0.0
+            core.make_print_tiff(Path(art["path"]), recipe, jw, jh, dpi, folder / name, pprogress, tex_path,
+                                 x_range=(x0, x1), label=label, label_cm=panels.LABEL_STRIP_CM)
+            with Image.open(folder / name) as pim:
+                files.append({"name": name, "px": list(pim.size), "mb": round((folder / name).stat().st_size / 2 ** 20, 1)})
+        info = {"job_id": job["id"], "created": job["created"], "design": art["name"], "material_code": art["material"],
+                "client_ref": job.get("client_ref"), "wall_w": job["wall_w"], "wall_h": job["wall_h"], "allowance": job["allowance"],
+                "height": jh, "dpi": dpi, "unit": unit, "files": files, "label_strip": bool(pset.get("label"))}
+        pp = folder / f"{stem}_{size_tag}_print-instructions.pdf"
+        pp.write_bytes(panels.printer_pdf(info, region, pl))
+        ip = folder / f"{stem}_{size_tag}_installer-card.pdf"
+        ip.write_bytes(panels.installer_card(info, region, pl, logo_path(job.get("logo"))))
+        extra_pdfs = [pp, ip]
+        px_w, px_h = tw, th
+        tiff_path = folder / files[0]["name"]
+    else:
+        tiff_path = folder / f"{stem}_{size_tag}_{dpi_tag}_print.tiff"
+        px_w, px_h = core.make_print_tiff(Path(art["path"]), recipe, jw, jh, dpi, tiff_path, progress, tex_path)
 
     sheet = [
         f"Job {job['id']}",
@@ -225,7 +259,13 @@ def process_job(job):
         f"Wall: {core.fmt(job['wall_w'])} x {core.fmt(job['wall_h'])} cm + {core.fmt(job['allowance'])} cm allowance"
         f" = {core.fmt(jw)} x {core.fmt(jh)} cm"
         + (f" ({core.dim(jw, 'in')} x {core.dim(jh, 'in')})" if unit == "in" else ""),
-        f"Print file: {px_w} x {px_h} px at {dpi:g} dpi" + (" (the artwork's own resolution at this size)" if job.get("dpi_mode") == "native" else ""),
+        f"Print file: {px_w} x {px_h} px at {dpi:g} dpi" + (" (the artwork's own resolution at this size)" if job.get("dpi_mode") == "native" else "")
+        + (" (the whole wall; printed as the panels below)" if pset else ""),
+        *([f"PANELS: {pl['count']} vertical panels, left to right facing the wall. Material {core.fmt(pl['material'])} cm wide, "
+           f"{core.fmt(pl['margin'])} cm unprinted across the width (printable {core.fmt(pl['printable'])} cm). "
+           f"Overlap {core.fmt(pl['overlap'])} cm of extra image on each joining side ({core.fmt(2 * pl['overlap'])} cm shared).",
+           *[f"  Panel {p['n']}: {core.fmt(round(p['w'], 1))} x {core.fmt(round(jh, 1))} cm, {f['px'][0]} x {f['px'][1]} px, file {f['name']}"
+             for p, f in zip(pl["panels"], files)]] if pset else []),
         *([f"RESOLUTION OVERRIDE: the artwork itself only gives {job['source_dpi']:g} dpi at this size and was enlarged to {dpi:g} dpi "
            "(chosen by the sales person)."] if job.get("dpi_mode") == "custom" and dpi > job.get("source_dpi", 0) * 1.005 else []),
         f"Original artwork shown on the proof: {'yes' if job.get('show_original') else 'no'}",
@@ -236,13 +276,16 @@ def process_job(job):
         f"Logo on proof: {job.get('logo') or 'none'}",
         "Client approved the proof: yes",
         "",
-        f"Files: {tiff_path.name}, {proof_path.name}",
+        "Files: " + ", ".join([f["name"] for f in files] if pset else [tiff_path.name]) + f", {proof_path.name}"
+        + "".join(", " + q.name for q in extra_pdfs),
     ]
     (folder / "job.txt").write_text("\n".join(sheet) + "\n")
-    size_mb = round(tiff_path.stat().st_size / 2 ** 20, 1)
+    size_mb = round(sum(f["mb"] for f in files), 1) if pset else round(tiff_path.stat().st_size / 2 ** 20, 1)
     job.update(status="done", progress="Ready", finished=datetime.now().isoformat(timespec="seconds"),
                edits=edits, result={"folder": str(folder.relative_to(OUT)), "tiff": tiff_path.name,
-                                    "proof": proof_path.name, "px": [px_w, px_h], "size_mb": size_mb})
+                                    "proof": proof_path.name, "px": [px_w, px_h], "size_mb": size_mb,
+                                    **({"panels": [dict(f, w_cm=round(p["w"], 1)) for p, f in zip(pl["panels"], files)],
+                                        "printer_pdf": extra_pdfs[0].name, "installer_card": extra_pdfs[1].name} if pset else {})})
     save_job(job)
     (folder / "job.json").write_text(json.dumps(job, indent=1))
     email_job(job, "\n".join(sheet))
@@ -451,7 +494,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/config":
             cfg = {"role": role, "authed": bool(role), "pin_required": sharing(), "version": VERSION}
             if role:
-                cfg.update(allowance=CFG["allowance_cm"], dpi_options=CFG["dpi_options"], min_dpi=CFG["min_dpi"],
+                cfg.update(allowance=CFG["allowance_cm"], panel_defaults=CFG["panel_defaults"], dpi_options=CFG["dpi_options"], min_dpi=CFG["min_dpi"],
                            logos=library.logos(LOGO_DIR), owner=role == "owner", artworks=LIB.counts()["artworks"],
                            scanning=LIB.scan_state["running"], textures=len(TEX.items))
             return self.send_json(cfg)
@@ -562,6 +605,8 @@ class Handler(BaseHTTPRequestHandler):
             role = self.role()
             if not role:
                 return self.send_json({"error": "Not signed in"}, 401)
+            if path == "/api/panels":
+                return self.send_json(self.panel_plan(data))
             if path == "/api/proof":
                 return self.proof(data, role)
             if path == "/api/print":
@@ -691,6 +736,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_bytes(pdf, "application/pdf", extra={"Content-Disposition": f'inline; filename="{name}"',
                                                        "X-Filename": name})
 
+    def panel_plan(self, data):
+        p = core.check_params(data)
+        jw, jh = core.job_size(p["wall_w"], p["wall_h"], p["allowance"])
+        pl = panels.plan(jw, data.get("material"), data.get("margin", 10), data.get("overlap", 2), data.get("count"))
+        pl["height"] = jh
+        return pl
+
     def print_job(self, data):
         art, p, jw, jh, recipe = self.common(data)
         native = bool(p.get("dpi_native"))
@@ -706,7 +758,18 @@ class Handler(BaseHTTPRequestHandler):
         if dpi < CFG["min_dpi"] and not override:
             raise ValueError(f"The lowest allowed resolution is {CFG['min_dpi']} dpi.")
         tw, th = core.target_px(jw, jh, dpi)
-        if tw * th > MAX_PRINT_PIXELS:
+        pset = None
+        if data.get("panels"):       # print as vertical panels instead of one file
+            pd = data["panels"]
+            pl = panels.plan(jw, pd.get("material"), pd.get("margin", 10), pd.get("overlap", 2), pd.get("count"))
+            if not pl["needed"]:
+                raise ValueError("The print area fits on one roll width, so panels are not needed. Choose \"Single file\".")
+            pset = {"material": pl["material"], "margin": pl["margin"], "overlap": pl["overlap"], "count": pl["count"],
+                    "label": bool(pd.get("label"))}
+            widest = max(x1 - x0 for x0, x1 in panels.panel_pixels(tw, pl["count"], round(pl["overlap"] / 2.54 * dpi)))
+            if widest * th > MAX_PRINT_PIXELS:
+                raise ValueError("Each panel would be too big to make safely. Choose a lower resolution.")
+        elif tw * th > MAX_PRINT_PIXELS:
             raise ValueError(f"That print file would be {tw * th / 1e6:,.0f} megapixels, which is too big to make safely. "
                              "Choose a lower resolution, or make the artwork smaller on the wall.")
         if sup < dpi * 0.995 and not override:
@@ -719,7 +782,7 @@ class Handler(BaseHTTPRequestHandler):
             "artwork_id": art["id"], "artwork_name": art["name"], "material": art["material"],
             "wall_w": p["wall_w"], "wall_h": p["wall_h"], "allowance": p["allowance"],
             "recipe": recipe, "unit": p["unit"], "dpi": dpi, "dpi_mode": "native" if native else "custom" if override else "fixed", "source_dpi": round(sup, 2),
-            "show_original": bool(data.get("show_original")), "logo": data.get("logo") or "",
+            "show_original": bool(data.get("show_original")), "logo": data.get("logo") or "", "panels": pset,
             "created_by": str(data.get("created_by", ""))[:60], "client_ref": str(data.get("client_ref", ""))[:120],
         })
         JOBQ.put(job["id"])

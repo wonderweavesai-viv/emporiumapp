@@ -66,7 +66,11 @@ def send_printer_email(cfg: dict, out_dir: Path, job: dict, sheet_text: str):
     res = job["result"]
     days = int(e.get("link_days", 14))
     base = cfg["public_url"]
-    links = [(res["tiff"], f"Print file ({res['size_mb']} MB)"), (res["proof"], "Approved proof (PDF)")]
+    if res.get("panels"):
+        links = [(f["name"], f"Panel {i + 1} of {len(res['panels'])} ({f['mb']} MB)") for i, f in enumerate(res["panels"])]
+        links += [(res["printer_pdf"], "Print instructions (PDF)"), (res["proof"], "Approved proof (PDF)")]
+    else:
+        links = [(res["tiff"], f"Print file ({res['size_mb']} MB)"), (res["proof"], "Approved proof (PDF)")]
     lines = [e.get("greeting", "Hello,"), "",
              f"Please find the print file for job {job['id']} below. The links work for {days} days.", ""]
     for name, label in links:
