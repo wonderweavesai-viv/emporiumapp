@@ -21,7 +21,7 @@ jobs:
       - run: python app/selftest.py
 
   mac-app:
-    runs-on: macos-14            # Apple Silicon (M1, M2, M3, M4)
+    runs-on: macos-15            # Apple Silicon (M1, M2, M3, M4)
     needs: test
     steps:
       - uses: actions/checkout@v4
