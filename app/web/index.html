@@ -234,6 +234,35 @@ details.sec[open] > summary::after { transform: rotate(-135deg); }
 .cw.sel .card { outline: 3px solid var(--accent); outline-offset: -3px; }
 .cw.sel::after { content: "✓"; position: absolute; top: 8px; left: 8px; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 700; }
 body.selecting .cedit { display: none; }
+#crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 0 14px 8px; font-size: 14px; }
+#crumbs button { background: none; border: 0; color: var(--accent); font: 600 14px var(--font-body); padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+#crumbs button:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+#crumbs .here { font-weight: 600; padding: 4px 6px; }
+#crumbs .sep { color: var(--muted); }
+#folderGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 8px; padding: 0 8px 12px; }
+.fold { display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 8px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; color: var(--ink); font-family: var(--font-body); }
+.fold:hover { border-color: var(--accent); }
+.fold .mos { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; background: var(--line); }
+.fold .mos img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fold .mos.one { grid-template-columns: 1fr; }
+.fold .fn { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 14px; }
+.fold .fn svg { flex: none; width: 16px; height: 16px; color: var(--accent); }
+.fold .fc { font: 400 12px var(--font-data); color: var(--muted); }
+.seg.viewseg { display: inline-flex; }
+.seg.viewseg button { padding: 3px 10px; font-size: 12.5px; }
+#zoomImg { position: absolute; z-index: 2; pointer-events: none; display: block; image-rendering: auto; }
+#zoomBadge { top: 12px; left: 14px; display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 14px; border-radius: 17px; border: 1px solid rgba(255,255,255,.35); background: rgba(10,14,14,.7); color: #fff; font: 500 12.5px var(--font-data); max-width: calc(100% - 330px); }
+#zoomBadge button { border: 0; border-radius: 12px; background: rgba(255,255,255,.2); color: #fff; font: 600 12px var(--font-body); padding: 4px 10px; cursor: pointer; }
+.wmprev { position: relative; width: 150px; height: 200px; border-radius: 8px; overflow: hidden; background: var(--line) center / cover; flex: none; border: 1px solid var(--line); }
+.wmprev img.m { position: absolute; display: block; }
+.wmprev .tiles { position: absolute; inset: -40%; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 10px; transform: rotate(-30deg); }
+.brandrow2 { display: flex; gap: 12px; align-items: center; }
+.brandrow2 .pic { width: 92px; height: 56px; border: 1px dashed var(--line); border-radius: 8px; display: grid; place-items: center; background: repeating-conic-gradient(#0000 0 25%, color-mix(in srgb, var(--line) 60%, transparent) 0 50%) 0 0 / 12px 12px; overflow: hidden; flex: none; }
+.brandrow2 .pic img { max-width: 100%; max-height: 100%; }
+.brandrow2 .pic span { font-size: 11px; color: var(--muted); }
+.rng { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.rng input[type=range] { flex: 1; }
+.rng b { min-width: 3.2em; text-align: right; font-family: var(--font-data); font-weight: 500; }
 #selbar { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 20; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 6px 28px rgba(0,0,0,.25); border-radius: 14px; padding: 10px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; max-width: calc(100% - 24px); }
 #selbar input { height: 32px; width: 170px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); padding: 0 10px; font: 400 14px var(--font-body); }
 #scanBar { margin: 0 14px 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
@@ -285,7 +314,9 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
       <div class="row" id="colorRow" aria-label="Colour filters"></div>
     </div>
     <div id="scanBar" hidden><span id="scanTxt"></span><div class="bar2"><i id="scanFill"></i></div></div>
-    <div class="meta"><span id="count"></span><span class="rt"><select id="sortSel" aria-label="Sort"><option value="folder">Folder order</option><option value="az">Name A–Z</option><option value="new">Newest first</option></select><button id="selBtn" hidden>Select</button><button id="clear" hidden>Clear filters</button></span></div>
+    <div class="meta"><span id="count"></span><span class="rt"><span class="seg viewseg" id="viewSeg" aria-label="How to browse"><button data-v="all" aria-pressed="true">All</button><button data-v="folders" aria-pressed="false">Folders</button></span><select id="sortSel" aria-label="Sort"><option value="folder">Folder order</option><option value="az">Name A–Z</option><option value="new">Newest first</option></select><button id="selBtn">Select</button><button id="clear" hidden>Clear filters</button></span></div>
+    <nav id="crumbs" hidden aria-label="Folder path"></nav>
+    <div id="folderGrid" hidden></div>
     <main class="grid" id="grid"></main>
   </section>
 
@@ -309,7 +340,9 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
       <button class="ov" id="origBtn" title="See the whole artwork, before any edits">Original artwork</button>
       <button class="ov" id="cmp" title="Hold to see the original colours (or hold C)">Hold: original colours</button>
       <div class="ov" id="mini" hidden><img id="miniImg" alt=""><div class="win" id="miniWin"></div></div>
-      <div class="ov" id="hint">Drag to move · Scroll to zoom · Arrow keys nudge</div>
+      <img class="ov" id="zoomImg" alt="" hidden>
+      <div class="ov" id="zoomBadge" hidden><span id="zbTxt"></span><button id="zbReset" type="button">Reset zoom</button></div>
+      <div class="ov" id="hint">Scroll to zoom in · Drag to move · Alt + scroll resizes the artwork</div>
     </div>
 
     <aside id="panel">
@@ -544,10 +577,30 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
 
   <div id="selbar" hidden>
     <b id="selCount" style="font-size:13px"></b>
+    <button class="btn small" id="selAll">Select all shown</button>
+    <button class="btn small primary" id="selCat">Catalogue PDF…</button>
+    <span id="tagCtl" style="display:contents">
     <input id="selTag" placeholder="Style tag, e.g. floral" maxlength="40" aria-label="Style tag">
-    <button class="btn small primary" id="selAdd">Add tag</button>
-    <button class="btn small" id="selRemove">Remove tag</button>
+    <button class="btn small" id="selAdd">Add tag</button>
+    <button class="btn small" id="selRemove">Remove tag</button></span>
     <button class="btn small" id="selDone">Done</button>
+  </div>
+
+  <div id="catDlg" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="cdTitleH">
+    <div class="mbox">
+      <div class="mhead"><h2 id="cdTitleH">Catalogue PDF</h2><button class="iconbtn" id="cdX" aria-label="Close">✕</button></div>
+      <div class="mbody">
+        <p class="info" id="cdCount" style="margin:0"></p>
+        <label class="fld">Title<input class="txt" id="cdTitle" maxlength="80" placeholder="e.g. Spring collection"></label>
+        <label class="fld">Prepared for (optional)<input class="txt" id="cdCust" maxlength="80" placeholder="Customer or project name"></label>
+        <div><span class="lbl">Designs per page</span><div class="seg" id="cdLayout"><button data-n="1" aria-pressed="true">1 per page</button><button data-n="4" aria-pressed="false">4 per page</button></div></div>
+        <div><span class="lbl">Mark on every design</span><div class="seg" id="cdMark"><button data-m="logo" aria-pressed="true">Logo</button><button data-m="watermark" aria-pressed="false">Watermark</button><button data-m="none" aria-pressed="false">None</button></div></div>
+        <label class="tog"><input type="checkbox" id="cdCover" checked> Cover page with the company logo</label>
+        <p class="info" id="cdInfo" style="margin:0"></p>
+        <div id="cdRes" class="actions" hidden></div>
+      </div>
+      <div class="mfoot"><button class="btn" id="cdCancel">Close</button><button class="btn primary" id="cdGo">Make PDF</button></div>
+    </div>
   </div>
 
   <div id="editor" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="edTitle">
@@ -612,7 +665,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     "Purple": "#7a5fa0", "Blue": "#3d6fa8", "Green & teal": "#3d8a7a"
   };
   var cfg = { allowance: 10, dpi_options: [144, 96], min_dpi: 72, logos: [] };
-  var catalog = [], F = { q: '', styles: {}, colors: {}, cats: {}, ori: {}, sort: 'folder' };
+  var catalog = [], F = { q: '', styles: {}, colors: {}, cats: {}, ori: {}, sort: 'folder', view: store('view') === 'folders' ? 'folders' : 'all', path: [] }, lastShown = [];
   var S = null, proofUrl = null, pollTimer = null, browseScroll = 0;
 
   function store(k, v) { try { if (v === undefined) return localStorage.getItem('emp.' + k); localStorage.setItem('emp.' + k, v); } catch (e) {} return null; }
@@ -640,7 +693,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
   async function init() {
     if (DEMO) {
       cfg.logos = [{ id: 'decor-est', name: 'Decor Est', url: 'media/logos/decor_est.png' }];
-      $('tag').textContent = 'Demo';
+      $('tag').textContent = 'Demo'; cfg.catalogue = { company: 'Emporium', cover: true, mark: 'logo', position: 'br', opacity: 100, size: 18 }; cfg.brand = { logo: 'media/logos/decor_est.png', watermark: '' };
     } else {
       var r = await fetch('api/config');
       cfg = Object.assign(cfg, await r.json());
@@ -648,7 +701,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     }
     OWNER = !!cfg.owner;
     $('pin').hidden = true; $('needapp').hidden = true;
-    $('gear').hidden = !OWNER; $('selBtn').hidden = !OWNER;
+    $('gear').hidden = !OWNER; $('tagCtl').style.display = OWNER ? 'contents' : 'none';
     if (!await loadCatalog()) return;
     if (OWNER) watchScan(true);
   }
@@ -731,9 +784,46 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     else if (F.sort === 'new') list = list.slice().sort(function (a, b) { return (b.added || 0) - (a.added || 0); });
     return list;
   }
+  /* ---- browse the designs the way the folders are laid out on the drive */
+  function dirsOf(a) { var p = String(a.folder || '').split(/[\\/]/).filter(Boolean); p.pop(); return p; }
+  var FOLDER_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
+  function folderView(list) {
+    var path = F.path, items = [], dirs = {}, total = 0;
+    list.forEach(function (a) {
+      var d = dirsOf(a);
+      for (var i = 0; i < path.length; i++) if (d[i] !== path[i]) return;
+      total++;
+      if (d.length === path.length) { items.push(a); return; }
+      var n = d[path.length], e = dirs[n] || (dirs[n] = { name: n, count: 0, thumbs: [] });
+      e.count++; if (e.thumbs.length < 4) e.thumbs.push(a.thumb);
+    });
+    var names = Object.keys(dirs).sort(function (x, y) { return x.localeCompare(y, undefined, { numeric: true, sensitivity: 'base' }); });
+    return { items: items, dirs: names.map(function (n) { return dirs[n]; }), total: total };
+  }
+  function drawFolders(fv) {
+    var cr = $('crumbs'), fg = $('folderGrid');
+    $('viewSeg').querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.v === F.view); });
+    if (!fv) { cr.hidden = true; fg.hidden = true; return; }
+    var h = [F.path.length ? '<button data-up="0">All designs</button>' : '<span class="here">All designs</span>'];
+    F.path.forEach(function (n, i) { h.push('<span class="sep">›</span>' + (i === F.path.length - 1 ? '<span class="here">' + esc(n) + '</span>' : '<button data-up="' + (i + 1) + '">' + esc(n) + '</button>')); });
+    cr.innerHTML = h.join(''); cr.hidden = !F.path.length && !fv.dirs.length;
+    fg.hidden = !fv.dirs.length;
+    fg.innerHTML = fv.dirs.map(function (d) {
+      return '<button class="fold" data-f="' + esc(d.name) + '"><span class="mos' + (d.thumbs.length < 2 ? ' one' : '') + '">' + d.thumbs.map(function (t) { return '<img loading="lazy" src="' + esc(t) + '" alt="">'; }).join('') + '</span>' +
+        '<span class="fn">' + FOLDER_SVG + esc(d.name) + '</span><span class="fc">' + d.count + (d.count === 1 ? ' design' : ' designs') + '</span></button>';
+    }).join('');
+  }
+  $('crumbs').addEventListener('click', function (e) { var b = e.target.closest('[data-up]'); if (!b) return; F.path = F.path.slice(0, +b.dataset.up); renderGrid(); });
+  $('folderGrid').addEventListener('click', function (e) { var b = e.target.closest('.fold'); if (!b) return; F.path = F.path.concat([b.dataset.f]); renderGrid(); window.scrollTo(0, 0); });
+  $('viewSeg').addEventListener('click', function (e) { var b = e.target.closest('button'); if (!b) return; F.view = b.dataset.v; F.path = []; store('view', F.view); renderGrid(); });
   function renderGrid() {
     var list = visibleList(), filtered = picked(F.styles).length || picked(F.colors).length || picked(F.cats).length || picked(F.ori).length || F.q;
-    $('count').textContent = list.length + (list.length === 1 ? ' design' : ' designs') + (filtered ? ' of ' + catalog.length : '');
+    var fv = null;
+    if (F.view === 'folders' && !filtered) { fv = folderView(list); list = fv.items; }
+    drawFolders(fv);
+    lastShown = list.map(function (a) { return a.id; });
+    $('count').textContent = fv ? (list.length + (list.length === 1 ? ' design' : ' designs') + ' here' + (fv.dirs.length ? ' · ' + fv.total + ' in all folders below' : ''))
+      : list.length + (list.length === 1 ? ' design' : ' designs') + (filtered ? ' of ' + catalog.length : '');
     $('clear').hidden = !filtered;
     var html;
     if (list.length) {
@@ -742,6 +832,8 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
           '<span class="cap"><span class="n">' + esc(a.name) + '</span><span class="m">' + esc(a.material) + '</span></span></button>' +
           (OWNER ? '<button class="cedit" data-edit="' + esc(a.id) + '" aria-label="Edit details of ' + esc(a.name) + '" title="Edit details">' + PENCIL + '</button>' : '') + '</div>';
       }).join('');
+    } else if (fv && fv.dirs.length) {
+      html = '';
     } else if (!catalog.length && !DEMO) {
       var scanning = LAST_SCAN && LAST_SCAN.running;
       html = OWNER
@@ -766,7 +858,57 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
   });
 
   /* ---- select several designs and tag them together */
-  function updateSel() { var n = Object.keys(selIds).length; $('selCount').textContent = n + (n === 1 ? ' selected' : ' selected'); $('selAdd').disabled = $('selRemove').disabled = !n; }
+  function updateSel() { var n = Object.keys(selIds).length; $('selCount').textContent = n + ' selected'; $('selAdd').disabled = $('selRemove').disabled = $('selCat').disabled = !n; }
+  $('selAll').addEventListener('click', function () { lastShown.forEach(function (id) { selIds[id] = true; }); renderGrid(); updateSel(); });
+  var catUrl = null;
+  function openCat() {
+    var ids = Object.keys(selIds), cs = cfg.catalogue || {}, br = cfg.brand || {};
+    $('cdCount').textContent = ids.length + (ids.length === 1 ? ' design' : ' designs') + ' in the order you picked them. Page 1 is the cover.';
+    $('cdTitle').value = store('cdTitle') || ''; $('cdCust').value = '';
+    $('cdCover').checked = cs.cover !== false;
+    var mk = cs.mark || 'logo'; if (mk === 'logo' && !br.logo) mk = br.watermark ? 'watermark' : 'none'; if (mk === 'watermark' && !br.watermark) mk = 'none';
+    $('cdMark').dataset.v = mk; $('cdLayout').dataset.v = '1';
+    cdRefresh(); $('cdRes').hidden = true; $('catDlg').hidden = false; $('cdTitle').focus();
+  }
+  function cdRefresh() {
+    var br = cfg.brand || {}, cs = cfg.catalogue || {}, mk = $('cdMark').dataset.v;
+    $('cdMark').querySelectorAll('button').forEach(function (b) {
+      var off = (b.dataset.m === 'logo' && !br.logo) || (b.dataset.m === 'watermark' && !br.watermark);
+      b.disabled = off; b.title = off ? 'Upload it in Settings first' : ''; b.setAttribute('aria-pressed', b.dataset.m === mk);
+    });
+    $('cdLayout').querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.n === $('cdLayout').dataset.v); });
+    var pos = { br: 'bottom right', center: 'centre', tile: 'tiled across the design' }[cs.position || 'br'];
+    $('cdInfo').textContent = (mk === 'none' ? 'No mark on the designs.' : (mk === 'logo' ? 'Your logo' : 'Your watermark') + ', ' + pos + ', at ' + (cs.opacity || 100) + '%.') + ' Pictures are 96 dpi at most, JPEG quality 90. Change the logo, watermark and strength in Settings.';
+  }
+  $('cdMark').addEventListener('click', function (e) { var b = e.target.closest('button'); if (!b || b.disabled) return; $('cdMark').dataset.v = b.dataset.m; cdRefresh(); });
+  $('cdLayout').addEventListener('click', function (e) { var b = e.target.closest('button'); if (!b) return; $('cdLayout').dataset.v = b.dataset.n; cdRefresh(); });
+  $('selCat').addEventListener('click', openCat);
+  $('cdX').addEventListener('click', function () { $('catDlg').hidden = true; });
+  $('cdCancel').addEventListener('click', function () { $('catDlg').hidden = true; });
+  $('cdGo').addEventListener('click', async function () {
+    if (DEMO) { toast('Demo only. The real app makes the A4 catalogue PDF here.'); return; }
+    var btn = this; btn.disabled = true; btn.textContent = 'Making PDF…';
+    store('cdTitle', $('cdTitle').value.trim());
+    try {
+      var body = { ids: Object.keys(selIds), title: $('cdTitle').value.trim(), customer: $('cdCust').value.trim(), per_page: +$('cdLayout').dataset.v,
+                   settings: { mark: $('cdMark').dataset.v, cover: $('cdCover').checked } };
+      var r = await fetch('api/catalogue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!r.ok) { var j = await r.json(); throw new Error(j.error || 'Could not make the catalogue.'); }
+      var name = r.headers.get('X-Filename') || 'catalogue.pdf', blob = await r.blob();
+      if (catUrl) URL.revokeObjectURL(catUrl);
+      catUrl = URL.createObjectURL(blob);
+      var res = $('cdRes'); res.hidden = false;
+      if (OWNER) {
+        res.innerHTML = '<button class="btn small" id="cdOpen">Open PDF</button><button class="btn small" id="cdFolder">Show in Finder</button>';
+        var openIt = async function () { try { var o = await api('api/open', { kind: 'catalogue', name: name }); if (!o.ok) window.open(catUrl, '_blank'); } catch (e) { toast(e.message); } };
+        $('cdOpen').addEventListener('click', openIt);
+        $('cdFolder').addEventListener('click', function () { api('api/open', { kind: 'output' }).catch(function (e) { toast(e.message); }); });
+        openIt();
+      } else res.innerHTML = '<a class="btn small" href="' + catUrl + '" target="_blank" rel="noopener">Open PDF</a><a class="btn small" href="' + catUrl + '" download="' + esc(name) + '">Save PDF</a>';
+      toast('Catalogue made: ' + Math.round(blob.size / 1024).toLocaleString('en-US') + ' KB.');
+    } catch (e) { toast(e.message); }
+    btn.disabled = false; btn.textContent = 'Make PDF';
+  });
   function setSelMode(on) {
     selMode = on; document.body.classList.toggle('selecting', on); $('selbar').hidden = !on; $('selBtn').textContent = on ? 'Cancel select' : 'Select';
     if (!on) { selIds = {}; renderGrid(); } else updateSel();
@@ -857,6 +999,66 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
       await api('api/settings', { folders: cur }); watchScan(); if (!$('settings').hidden) openSettings();
     } catch (e) { toast(e.message); }
   }
+  function catSettingsHtml(s) {
+    var c = s.catalogue || {}, b = s.brand || {};
+    var pic = function (k, label) {
+      return '<div class="brandrow2"><div class="pic">' + (b[k] ? '<img src="' + esc(b[k]) + '" alt="' + label + '">' : '<span>none yet</span>') + '</div><div style="flex:1;min-width:0"><b style="font-size:13px">' + label + '</b>' +
+        '<div class="actions" style="margin-top:6px"><button class="btn small" data-up="' + k + '">' + (b[k] ? 'Replace…' : 'Upload…') + '</button>' + (b[k] ? '<button class="btn small" data-del="' + k + '">Remove</button>' : '') + '</div></div></div>';
+    };
+    return '<div class="sgrp" id="catSet"><h3>Catalogue PDF</h3><p class="info">Choose designs, then make an A4 PDF for a customer or your website: a cover page with your logo, then the designs. Pictures are 96 dpi at most, JPEG quality 90.</p>' +
+      '<label class="fld">Company name (cover and page footer)<input class="txt" id="cgCompany" maxlength="60" value="' + esc(c.company || 'Emporium') + '"></label>' +
+      pic('logo', 'Brand logo') + pic('watermark', 'Watermark') +
+      '<p class="info">A PNG with a transparent background looks best. Both are only used in catalogue PDFs.</p>' +
+      '<div style="display:flex;gap:14px;align-items:flex-start"><div style="flex:1;display:flex;flex-direction:column;gap:10px;min-width:0">' +
+      '<div><span class="lbl">Mark on every design</span><div class="seg" id="cgMark"><button data-m="logo">Logo</button><button data-m="watermark">Watermark</button><button data-m="none">None</button></div></div>' +
+      '<div><span class="lbl">Where</span><div class="seg" id="cgPos"><button data-p="br">Bottom right</button><button data-p="center">Centre</button><button data-p="tile">Tiled</button></div></div>' +
+      '<label class="rng"><span style="width:5.5em">Strength</span><input type="range" id="cgOp" min="10" max="100" step="1"><b id="cgOpV"></b></label>' +
+      '<label class="rng"><span style="width:5.5em">Size</span><input type="range" id="cgSz" min="5" max="60" step="1"><b id="cgSzV"></b></label>' +
+      '</div><div class="wmprev" id="cgPrev" aria-label="Preview"></div></div>' +
+      '<label class="tog"><input type="checkbox" id="cgCover"' + (c.cover !== false ? ' checked' : '') + '> Cover page with the brand logo</label>' +
+      '<div class="actions"><button class="btn small primary" id="cgSave">Save catalogue settings</button></div></div>';
+  }
+  function catSettingsWire(s) {
+    var c = Object.assign({ mark: 'logo', position: 'br', opacity: 100, size: 18 }, s.catalogue || {}), b = s.brand || {};
+    var seg = function (id, attr, val) { $(id).querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-pressed', x.dataset[attr] === val); }); };
+    var prev = function () {
+      seg('cgMark', 'm', c.mark); seg('cgPos', 'p', c.position);
+      $('cgOpV').textContent = c.opacity + '%'; $('cgSzV').textContent = c.size + '%';
+      var box = $('cgPrev'), src = c.mark === 'logo' ? b.logo : (c.mark === 'watermark' ? b.watermark : '');
+      var sample = catalog[0]; box.style.backgroundImage = sample ? 'url(' + sample.thumb + ')' : 'none';
+      if (!src) { box.innerHTML = c.mark === 'none' ? '' : '<span class="info" style="position:absolute;inset:auto 6px 6px 6px;background:var(--surface);padding:3px 6px;border-radius:6px">Upload a ' + c.mark + ' to preview</span>'; return; }
+      var w = Math.max(8, 150 * c.size / 100), st = 'width:' + w + 'px;opacity:' + (c.opacity / 100);
+      if (c.position === 'br') box.innerHTML = '<img class="m" src="' + src + '" style="' + st + ';right:4.5px;bottom:4.5px" alt="">';
+      else if (c.position === 'center') box.innerHTML = '<img class="m" src="' + src + '" style="' + st + ';left:50%;top:50%;transform:translate(-50%,-50%)" alt="">';
+      else box.innerHTML = '<div class="tiles">' + new Array(80).join('<img src="' + src + '" style="' + st + '" alt="">') + '</div>';
+    };
+    $('cgMark').addEventListener('click', function (e) { var x = e.target.closest('button'); if (x) { c.mark = x.dataset.m; prev(); } });
+    $('cgPos').addEventListener('click', function (e) { var x = e.target.closest('button'); if (x) { c.position = x.dataset.p; prev(); } });
+    $('cgOp').value = c.opacity; $('cgSz').value = c.size;
+    $('cgOp').addEventListener('input', function () { c.opacity = +this.value; prev(); });
+    $('cgSz').addEventListener('input', function () { c.size = +this.value; prev(); });
+    prev();
+    $('cgSave').addEventListener('click', async function () {
+      try {
+        var r = await api('api/settings', { catalogue: { company: $('cgCompany').value, cover: $('cgCover').checked, mark: c.mark, position: c.position, opacity: c.opacity, size: c.size } });
+        cfg.catalogue = r.catalogue; cfg.brand = r.brand; toast('Catalogue settings saved.');
+      } catch (e) { toast(e.message); }
+    });
+    document.querySelectorAll('#catSet [data-up]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/png,image/jpeg,image/webp';
+        inp.addEventListener('change', function () {
+          var f = inp.files[0]; if (!f) return;
+          if (f.size > 12e6) { toast('Please choose an image under 12 MB.'); return; }
+          var rd = new FileReader();
+          rd.onload = async function () { try { var r = await api('api/brand', { kind: btn.dataset.up, data: rd.result }); cfg.brand = r.brand; toast('Saved.'); openSettings(); } catch (e) { toast(e.message); } };
+          rd.readAsDataURL(f);
+        });
+        inp.click();
+      });
+    });
+    document.querySelectorAll('#catSet [data-del]').forEach(function (btn) { btn.addEventListener('click', async function () { try { var r = await api('api/brand', { kind: btn.dataset.del, remove: true }); cfg.brand = r.brand; openSettings(); } catch (e) { toast(e.message); } }); });
+  }
   async function openSettings() {
     var s; try { s = await api('api/settings'); } catch (e) { toast(e.message); return; }
     var sc = s.scan || {}, errs = (sc.errors || []).concat(sc.notes || []);
@@ -875,8 +1077,9 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
       '<div class="actions"><button class="btn small primary" id="stNet">Save sharing settings</button></div>' +
       (s.sharing_active ? '<div class="fl"><span>Your team opens: <b>' + esc(s.share_url) + '</b></span><button id="stCopy" title="Copy" aria-label="Copy the address">⧉</button></div><p class="info">They type the PIN once. They can browse, make proofs and send jobs to print, but cannot change settings or tags.</p>' : '<p class="info">Sharing is off. The app is only reachable from this computer.</p>') + '</div>' +
       '<div class="sgrp"><h3>Logos for proofs</h3><p class="info">Put PNG logo files in the logos folder. They appear as choices on the proof.</p><div class="actions"><button class="btn small" id="stLogos">Open logos folder</button></div></div>' +
+      catSettingsHtml(s) +
       '<div class="sgrp"><h3>About</h3><p class="info">Emporium Print Studio ' + esc(s.version) + '<br>App data: ' + esc(s.data_dir) + '</p></div>';
-    $('stBody').innerHTML = h; $('settings').hidden = false;
+    $('stBody').innerHTML = h; $('settings').hidden = false; catSettingsWire(s);
     var on = function (id, fn) { var el = $(id); if (el) el.addEventListener('click', fn); };
     on('stAdd', addFolder);
     on('stScan', async function () { try { await api('api/scan', {}); watchScan(); openSettings(); } catch (e) { toast(e.message); } });
@@ -897,7 +1100,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
   }
   $('gear').addEventListener('click', openSettings);
   $('stX').addEventListener('click', function () { $('settings').hidden = true; });
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { $('settings').hidden = true; if (!$('editor').hidden) closeEditor(); } });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { $('settings').hidden = true; $('catDlg').hidden = true; if (V.z > 1) resetZoom(); if (!$('editor').hidden) closeEditor(); } });
 
   /* ------------------------------------------------ setup: state and geometry
      S.r is the "recipe". The server receives exactly this and renders the proof and the print file from it. */
@@ -1108,6 +1311,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
 
   /* ------------------------------------------------ setup: open / close */
   function openSetup(art) {
+    if (typeof resetZoom === 'function' && V) resetZoom();
     browseScroll = $('browse').scrollTop;
     var w = (store('wall') || '').split('x');
     S = { art: art, wallW: parseFloat(w[0]) || 180, wallH: parseFloat(w[1]) || 320, allowance: cfg.allowance,
@@ -1166,7 +1370,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     S.autoDpi = false;
     layoutStage(); refreshUI(); schedule();
   }
-  function schedule() { if (raf) return; raf = true; requestAnimationFrame(draw); }
+  function schedule() { if (V && V.z > 1.001) zoomChanged(); if (raf) return; raf = true; requestAnimationFrame(draw); }
   function interactive() { // render at lower quality while the user is dragging, then sharpen
     if (!S) return;
     S.fast = true; clearTimeout(fastTimer);
@@ -1905,7 +2109,8 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     try { ww.setPointerCapture(e.pointerId); } catch (x) {}
     ww.classList.add('dragging'); $('hint').style.opacity = 0;
     var ids = Object.keys(pointers);
-    if (ids.length === 2) { var a = pointers[ids[0]], b = pointers[ids[1]]; dragState = { pinch: true, d: Math.hypot(a.x - b.x, a.y - b.y), aw: S.r.art_w }; }
+    if (ids.length === 2 && V.z > 1.001) { dragState = { x: e.clientX, y: e.clientY }; }
+    else if (ids.length === 2) { var a = pointers[ids[0]], b = pointers[ids[1]]; dragState = { pinch: true, d: Math.hypot(a.x - b.x, a.y - b.y), aw: S.r.art_w }; }
     else dragState = { x: e.clientX, y: e.clientY };
   });
   ww.addEventListener('pointermove', function (e) {
@@ -1919,6 +2124,7 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
       return;
     }
     if (dragState.pinch) return;
+    if (V.z > 1.001) { V.tx += e.clientX - dragState.x; V.ty += e.clientY - dragState.y; clampZoom(); applyZoom(); zoomChanged(); dragState.x = e.clientX; dragState.y = e.clientY; return; }
     var k = S.cssW / G().jw;
     moveView((e.clientX - dragState.x) / k, (e.clientY - dragState.y) / k);
     dragState.x = e.clientX; dragState.y = e.clientY; interactive();
@@ -1929,10 +2135,67 @@ button:focus-visible, input:focus-visible, .card:focus-visible, summary:focus-vi
     else if (Object.keys(pointers).length === 1) { var p = pointers[Object.keys(pointers)[0]]; dragState = { x: p.x, y: p.y }; }
   }
   ww.addEventListener('pointerup', endDrag); ww.addEventListener('pointercancel', endDrag);
+  /* ---- zoom into a part of the wall; the zoomed part is cut from the original file, so it shows the real pixels */
+  var V = { z: 1, tx: 0, ty: 0 }, zTimer = null, zReq = 0, zAbort = null, zUrl = null;
+  function wrapBase() { return { x: $('wallbox').offsetLeft + ww.offsetLeft, y: $('wallbox').offsetTop + ww.offsetTop }; }
+  function hideZoomImg() { var im = $('zoomImg'); im.hidden = true; if (zAbort) { zAbort.abort(); zAbort = null; } zReq++; }
+  function applyZoom() {
+    ww.style.transformOrigin = '0 0';
+    ww.style.transform = V.z > 1.001 ? 'translate(' + V.tx + 'px,' + V.ty + 'px) scale(' + V.z + ')' : '';
+    $('rulerX').style.opacity = $('rulerY').style.opacity = V.z > 1.001 ? 0.2 : 1;
+    $('zoomBadge').hidden = V.z <= 1.001;
+    $('zbTxt').textContent = 'Zoom ' + Math.round(V.z * 100) + '%';
+    document.body.classList.toggle('zoomed', V.z > 1.001);
+  }
+  function resetZoom() { V = { z: 1, tx: 0, ty: 0 }; hideZoomImg(); clearTimeout(zTimer); applyZoom(); }
+  function clampZoom() {
+    var b = wrapBase(), st = $('stage'), W = ww.offsetWidth * V.z, H = ww.offsetHeight * V.z, m = 40;
+    var loX = Math.min(m - b.x, st.clientWidth - m - b.x - W), hiX = Math.max(m - b.x, st.clientWidth - m - b.x - W);
+    var loY = Math.min(m - b.y, st.clientHeight - m - b.y - H), hiY = Math.max(m - b.y, st.clientHeight - m - b.y - H);
+    V.tx = Math.min(hiX, Math.max(loX, V.tx)); V.ty = Math.min(hiY, Math.max(loY, V.ty));
+  }
+  function zoomChanged() { hideZoomImg(); clearTimeout(zTimer); if (V.z > 1.02 && !DEMO) zTimer = setTimeout(doZoom, 280); }
+  function zoomAt(clientX, clientY, factor) {
+    var st = $('stage').getBoundingClientRect(), b = wrapBase(), sx = clientX - st.left, sy = clientY - st.top;
+    var nz = Math.min(60, Math.max(1, V.z * factor)); if (nz === V.z) return;
+    var lx = (sx - b.x - V.tx) / V.z, ly = (sy - b.y - V.ty) / V.z;
+    V.tx = sx - b.x - nz * lx; V.ty = sy - b.y - nz * ly; V.z = nz;
+    if (V.z <= 1.001) { V = { z: 1, tx: 0, ty: 0 }; } else clampZoom();
+    applyZoom(); zoomChanged();
+  }
+  function zoomStatus(ok) {
+    var art = S && S.art; if (!art || !S.r) return;
+    var perCm = (S.cssW * V.z / G().jw) * (window.devicePixelRatio || 1), native = art.w / S.r.art_w, ratio = perCm / native, t = 'Zoom ' + Math.round(V.z * 100) + '%';
+    if (ok) t += ratio >= 0.95 ? ' · original pixels' + (ratio > 1.05 ? ', each shown ' + (Math.round(ratio * 10) / 10) + '× wider' : ' (1:1)') : ' · all the original detail';
+    else t += ' · loading the original…';
+    $('zbTxt').textContent = t;
+  }
+  async function doZoom() {
+    if (!S || !validWall() || V.z <= 1.02) return;
+    var st = $('stage').getBoundingClientRect(), r = ww.getBoundingClientRect();
+    var L = Math.max(r.left, st.left), T = Math.max(r.top, st.top), R = Math.min(r.right, st.right), B = Math.min(r.bottom, st.bottom);
+    if (R - L < 8 || B - T < 8) return;
+    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    var body = Object.assign(payload(), { dpi: 96, dpi_override: false, dpi_native: false, panels: null, fx0: (L - r.left) / r.width, fy0: (T - r.top) / r.height, fx1: (R - r.left) / r.width, fy1: (B - r.top) / r.height, view_px: Math.round((R - L) * dpr) });
+    var id = ++zReq; if (zAbort) zAbort.abort(); zAbort = new AbortController(); zoomStatus(false);
+    try {
+      var res = await fetch('api/zoom', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: zAbort.signal });
+      if (!res.ok) throw new Error('zoom');
+      var blob = await res.blob(); if (id !== zReq) return;
+      if (zUrl) URL.revokeObjectURL(zUrl);
+      zUrl = URL.createObjectURL(blob);
+      var im = $('zoomImg'); im.style.left = (L - st.left) + 'px'; im.style.top = (T - st.top) + 'px'; im.style.width = (R - L) + 'px'; im.style.height = (B - T) + 'px';
+      im.onload = function () { if (id === zReq) { im.hidden = false; zoomStatus(true); } }; im.src = zUrl;
+    } catch (e) { if (e.name !== 'AbortError') { $('zbTxt').textContent = 'Zoom ' + Math.round(V.z * 100) + '%'; } }
+  }
+  $('zbReset').addEventListener('click', resetZoom);
+  ww.addEventListener('dblclick', function () { if (V.z > 1.001) resetZoom(); });
+  window.addEventListener('resize', function () { if (V.z > 1.001) resetZoom(); });
   $('stage').addEventListener('wheel', function (e) {
     if (!S || !validWall()) return;
     e.preventDefault();
-    var f = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), p = ptrCm(e);
+    if (!e.altKey) { zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0022))); return; }
+    var f = Math.exp(-(e.deltaY || e.deltaX) * 0.0015), p = ptrCm(e);
     p.fx = Math.min(1, Math.max(0, p.fx)); p.fy = Math.min(1, Math.max(0, p.fy));
     setArtW(S.r.art_w * f, p.fx, p.fy); interactive();
   }, { passive: false });

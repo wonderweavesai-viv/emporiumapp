@@ -24,15 +24,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
+import base64
+import catalogue
 import core
 import library
 import panels
+import render
 import share
 import textures
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 APP = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))   # where the bundled web/ folder lives
 
 
@@ -58,6 +61,7 @@ DEFAULTS = {
     "port": 8080,
     "allowance_cm": 10,             # added to wall width and height (in total)
     "panel_defaults": {"material": 137, "margin": 10, "overlap": 2},   # starting values for "Print panels"
+    "catalogue": dict(catalogue.DEFAULTS),   # the curated catalogue PDF: cover, logo/watermark, strength
     "dpi_options": [144, 96],
     "min_dpi": 72,
     "public_url": "",               # only for emailing the printer a download link (see README)
@@ -70,6 +74,7 @@ CFG = {}
 LIB = None
 OUT = None
 LOGO_DIR = None
+BRAND_DIR = None
 TEX = None
 OWNER_TOKEN = secrets.token_hex(16)   # proves a request comes from the app window itself
 TOKENS = set()                        # PIN sessions of people on the office network
@@ -118,13 +123,15 @@ def apply_config():
 
 def init(data=None):
     """Load settings and open the catalogue. Call once before starting the server."""
-    global DATA, CFG, LIB, LOGO_DIR, TEX
+    global DATA, CFG, LIB, LOGO_DIR, BRAND_DIR, TEX
     if data:
         DATA = Path(data)
     DATA.mkdir(parents=True, exist_ok=True)
     CFG = load_config()
     LOGO_DIR = DATA / "logos"
     LOGO_DIR.mkdir(exist_ok=True)
+    BRAND_DIR = DATA / "brand"
+    BRAND_DIR.mkdir(exist_ok=True)
     LIB = library.Library(DATA)
     TEX = textures.Textures(DATA)
     apply_config()
@@ -163,6 +170,19 @@ def recent_jobs(n=30):
     return [json.loads(p.read_text()) for p in files]
 
 
+def brand_file(kind):
+    f = BRAND_DIR / f"{kind}.png"
+    return f if f.is_file() else None
+
+
+def brand_state():
+    out = {}
+    for k in ("logo", "watermark"):
+        f = brand_file(k)
+        out[k] = f"media/brand/{k}.png?v={f.stat().st_mtime_ns}" if f else ""
+    return out
+
+
 def logo_path(logo_id):
     for lg in library.logos(LOGO_DIR):
         if lg["id"] == logo_id:
@@ -174,6 +194,31 @@ def texture_file(recipe):
     t = recipe.get("texture")
     found = TEX.lookup(t["id"]) if t else None
     return found[0] if found else None
+
+
+class MasterCache:
+    """Keeps the last full-size design in memory, so panning around while zoomed does not reopen the file each time."""
+    def __init__(self):
+        self.key = None
+        self.img = None
+        self.lock = threading.Lock()
+
+    def get(self, art_id, path):
+        st = path.stat()
+        key = (art_id, str(path), st.st_mtime_ns, st.st_size)
+        with self.lock:
+            if self.key != key:
+                with Image.open(path) as im:
+                    if im.mode in ("RGBA", "LA", "P"):
+                        rgba = im.convert("RGBA")
+                        im2 = Image.alpha_composite(Image.new("RGBA", rgba.size, (255, 255, 255, 255)), rgba).convert("RGB")
+                    else:
+                        im2 = im.convert("RGB") if im.mode != "RGB" else im.copy()
+                    self.img, self.key = ImageOps.exif_transpose(im2), key
+            return self.img
+
+
+ZOOM_CACHE = MasterCache()
 
 
 def preview_path(art_id):
@@ -393,6 +438,7 @@ def settings_view():
         "share_url": f"http://{ip}:{RUNTIME['port']}", "logo_dir": str(LOGO_DIR), "data_dir": str(DATA),
         "version": VERSION, "counts": LIB.counts(), "scan": dict(LIB.scan_state),
         "email_on": bool(CFG["email"].get("enabled")),
+        "catalogue": catalogue.clean_settings(CFG.get("catalogue")), "brand": brand_state(),
     }
 
 
@@ -496,7 +542,8 @@ class Handler(BaseHTTPRequestHandler):
             if role:
                 cfg.update(allowance=CFG["allowance_cm"], panel_defaults=CFG["panel_defaults"], dpi_options=CFG["dpi_options"], min_dpi=CFG["min_dpi"],
                            logos=library.logos(LOGO_DIR), owner=role == "owner", artworks=LIB.counts()["artworks"],
-                           scanning=LIB.scan_state["running"], textures=len(TEX.items))
+                           scanning=LIB.scan_state["running"], textures=len(TEX.items),
+                           catalogue=catalogue.clean_settings(CFG.get("catalogue")), brand=brand_state())
             return self.send_json(cfg)
         if path.startswith("/dl/"):
             return self.download(path)
@@ -522,8 +569,8 @@ class Handler(BaseHTTPRequestHandler):
                 data = TEX.media(parts[3])
                 if data:
                     return self.send_bytes(data, "image/jpeg", extra={"Cache-Control": "private, max-age=60"})
-            if len(parts) == 4 and parts[2] in ("thumbs", "previews", "logos"):
-                base = LOGO_DIR if parts[2] == "logos" else LIB.cache / parts[2]
+            if len(parts) == 4 and parts[2] in ("thumbs", "previews", "logos", "brand"):
+                base = {"logos": LOGO_DIR, "brand": BRAND_DIR}.get(parts[2]) or LIB.cache / parts[2]
                 f = (base / parts[3]).resolve()
                 if base.resolve() in f.parents and f.is_file() and f.suffix.lower() in MEDIA:
                     return self.send_bytes(f.read_bytes(), MEDIA[f.suffix.lower()],
@@ -611,6 +658,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.proof(data, role)
             if path == "/api/print":
                 return self.print_job(data)
+            if path == "/api/zoom":
+                return self.zoom_view(data)
+            if path == "/api/catalogue":
+                return self.make_catalogue(data)
             if path == "/api/email":
                 job = load_job(str(data.get("job_id", "")))
                 if not job or job.get("status") != "done":
@@ -633,6 +684,8 @@ class Handler(BaseHTTPRequestHandler):
                 ids = [str(i) for i in (data.get("ids") or [])][:5000]
                 LIB.bulk_styles(ids, data.get("add_styles") or [], data.get("remove_styles") or [])
                 return self.send_json({"ok": True})
+            if path == "/api/brand":
+                return self.send_json(self.save_brand(data))
             if path == "/api/open":
                 return self.send_json(self.open_something(data))
             self.send_json({"error": "Not found"}, 404)
@@ -673,6 +726,8 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 raise ValueError("I can't use that folder for print files.")
             CFG["output_dir"] = str(p)
+        if "catalogue" in data:
+            CFG["catalogue"] = catalogue.clean_settings(dict(CFG.get("catalogue") or {}, **(data["catalogue"] or {})))
         if "access_pin" in data:
             pin = str(data["access_pin"]).strip()
             if pin and len(pin) < 4:
@@ -706,6 +761,11 @@ class Handler(BaseHTTPRequestHandler):
             if not f.is_file():
                 raise ValueError("That proof is not there any more.")
             return {"ok": open_path(f)}
+        if kind == "catalogue":
+            f = (OUT / "Catalogues" / Path(str(data.get("name", ""))).name)
+            if not f.is_file():
+                raise ValueError("That catalogue is not there any more.")
+            return {"ok": open_path(f)}
         if kind == "job":
             f = (OUT / str(data.get("folder", ""))).resolve()
             if OUT.resolve() not in f.parents or not f.is_dir():
@@ -735,6 +795,90 @@ class Handler(BaseHTTPRequestHandler):
         (OUT / "Proofs" / name).write_bytes(pdf)
         self.send_bytes(pdf, "application/pdf", extra={"Content-Disposition": f'inline; filename="{name}"',
                                                        "X-Filename": name})
+
+    def zoom_view(self, data):
+        """A picture of just the part of the wall you have zoomed into, cut from the original master file."""
+        art, p, jw, jh, recipe = self.common(data)
+        try:
+            fx0, fy0, fx1, fy1 = [min(1.0, max(0.0, float(data[k]))) for k in ("fx0", "fy0", "fx1", "fy1")]
+            view = int(min(2400, max(200, float(data.get("view_px", 1200)))))
+        except (KeyError, TypeError, ValueError):
+            raise ValueError("Zoom area is missing.")
+        if fx1 - fx0 < 0.0004 or fy1 - fy0 < 0.0004:
+            raise ValueError("Zoom area is too small.")
+        native = art["w"] / recipe["art_w"]              # pixels per cm that the master really has
+        need = view / ((fx1 - fx0) * jw)                 # pixels per cm the screen can show
+        res = min(native, need)
+        out_w, out_h = max(1, round(jw * res)), max(1, round(jh * res))
+        x0, y0 = int(fx0 * out_w), int(fy0 * out_h)
+        x1, y1 = max(x0 + 1, round(fx1 * out_w)), max(y0 + 1, round(fy1 * out_h))
+        if (x1 - x0) * (y1 - y0) > 9_000_000:
+            raise ValueError("Zoom area is too large.")
+        master = ZOOM_CACHE.get(art["id"], Path(art["path"]))
+        tf = texture_file(recipe)
+        tex = textures.load(tf) if tf and recipe.get("texture") else None
+        img = render.render(master, recipe, jw, jh, out_w, out_h, texture=tex, x_range=(x0, x1), y_range=(y0, y1))
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=88)
+        self.send_bytes(buf.getvalue(), "image/jpeg", extra={
+            "X-Zoom-Px-Per-Cm": f"{res:.4f}", "X-Native-Px-Per-Cm": f"{native:.4f}", "Cache-Control": "no-store"})
+
+    def save_brand(self, data):
+        kind = data.get("kind")
+        if kind not in ("logo", "watermark"):
+            raise ValueError("Unknown image.")
+        f = BRAND_DIR / f"{kind}.png"
+        if data.get("remove"):
+            f.unlink(missing_ok=True)
+            return settings_view()
+        raw = str(data.get("data") or "")
+        if "," in raw[:100]:
+            raw = raw.split(",", 1)[1]
+        try:
+            blob = base64.b64decode(raw, validate=False)
+        except Exception:
+            raise ValueError("That file could not be read.")
+        if not blob or len(blob) > 12_000_000:
+            raise ValueError("Please choose an image under 12 MB (a PNG with a transparent background works best).")
+        try:
+            im = Image.open(io.BytesIO(blob)); im.load()
+        except Exception:
+            raise ValueError("That is not an image I can open. Use a PNG or JPG.")
+        im = core.ImageOps.exif_transpose(im).convert("RGBA")
+        if max(im.size) > 1600:
+            k = 1600 / max(im.size)
+            im = im.resize((max(1, round(im.width * k)), max(1, round(im.height * k))), Image.LANCZOS)
+        im.save(f, "PNG")
+        return settings_view()
+
+    def make_catalogue(self, data):
+        ids = []
+        for i in data.get("ids") or []:
+            if str(i) not in ids:
+                ids.append(str(i))
+        items = []
+        for i in ids[:catalogue.MAX_DESIGNS + 1]:
+            art = LIB.get(i)
+            if not art:
+                continue
+            path = Path(art["path"])
+            if not path.is_file():
+                path = preview_path(art["id"])
+            items.append({"name": art["name"], "material": art["material"], "path": path,
+                          "size": f"{art['w']} × {art['h']} px"})
+        st = catalogue.clean_settings(dict(CFG.get("catalogue") or {}, **{k: v for k, v in (data.get("settings") or {}).items()}))
+        logo = catalogue.load_brand_image(brand_file("logo")) if brand_file("logo") else None
+        wm = catalogue.load_brand_image(brand_file("watermark")) if brand_file("watermark") else None
+        if st["mark"] == "logo" and logo is None:
+            raise ValueError("Upload your logo in Settings first, or choose a different mark.")
+        if st["mark"] == "watermark" and wm is None:
+            raise ValueError("Upload your watermark in Settings first, or choose a different mark.")
+        pdf = catalogue.build(items, st, data.get("title"), data.get("customer"), data.get("per_page"), logo, wm)
+        base = core.safe(str(data.get("customer") or data.get("title") or "Catalogue")) or "Catalogue"
+        name = f"{base}_{datetime.now().strftime('%Y-%m-%d_%H-%M')}_catalogue.pdf"
+        (OUT / "Catalogues").mkdir(parents=True, exist_ok=True)
+        (OUT / "Catalogues" / name).write_bytes(pdf)
+        self.send_bytes(pdf, "application/pdf", extra={"Content-Disposition": f'inline; filename="{name}"', "X-Filename": name})
 
     def panel_plan(self, data):
         p = core.check_params(data)

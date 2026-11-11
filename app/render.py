@@ -282,12 +282,13 @@ def multiply_texture(strip, unit, cols, spec, y0, y1):
     return Image.fromarray(np.rint(a).clip(0, 255).astype(np.uint8), "RGB")
 
 
-def render(src, recipe, jw, jh, out_w, out_h, strip_px=4_000_000, progress=None, colour=True, texture=None, x_range=None):
+def render(src, recipe, jw, jh, out_w, out_h, strip_px=4_000_000, progress=None, colour=True, texture=None, x_range=None, y_range=None):
     """Render the wall (jw x jh cm) from the image `src` into an out_w x out_h RGB picture.
 
     The picture is built in horizontal strips. Each strip is resampled straight from the source with Pillow's
     `box` argument, which lets the filter see the neighbouring rows, so there are no seams between strips."""
     x0w, x1w = x_range or (0, out_w)       # panels: only these columns of the full-width picture are made
+    y0w, y1w = y_range or (0, out_h)       # zoom: only these rows too
     win = x1w - x0w
     g0, g1 = (out_w - x1w, out_w - x0w) if recipe.get("flip_h") else (x0w, x1w)    # the same window before mirroring
     sw, sh = src.size
@@ -339,10 +340,10 @@ def render(src, recipe, jw, jh, out_w, out_h, strip_px=4_000_000, progress=None,
         tunit = texture_unit(texture, tspec, pxx, pxy)
         tcols = _tile_index(x0w, win, tunit.shape[1], tspec["mode"] == "mirror")
 
-    final = Image.new("RGB", (win, out_h))
+    final = Image.new("RGB", (win, y1w - y0w))
     step = max(16, strip_px // max(1, win))
-    for y0 in range(0, out_h, step):
-        y1 = min(out_h, y0 + step)
+    for y0 in range(y0w, y1w, step):
+        y1 = min(y1w, y0 + step)
         strip = get(out_h - y1, out_h - y0) if flip_v else get(y0, y1)
         if flip_v:
             strip = ImageOps.flip(strip)
@@ -352,7 +353,7 @@ def render(src, recipe, jw, jh, out_w, out_h, strip_px=4_000_000, progress=None,
             strip = colour_image(strip, col, hsl)
         if tunit is not None:      # the texture lies on the wall; the artwork is multiplied over it
             strip = multiply_texture(strip, tunit, tcols, tspec, y0, y1)
-        final.paste(strip, (0, y0))
+        final.paste(strip, (0, y0 - y0w))
         if progress:
-            progress(y1 / out_h)
+            progress((y1 - y0w) / max(1, y1w - y0w))
     return final

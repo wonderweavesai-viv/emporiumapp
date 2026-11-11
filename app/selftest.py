@@ -6,8 +6,10 @@ and checks the access rules. Run by the build on every release, and handy on you
 
 Uses a temporary data folder, so it never touches your real settings or designs.
 """
+import io
 import json
 import os
+import subprocess
 import shutil
 import sys
 import tempfile
@@ -17,7 +19,7 @@ import urllib.request
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 
 def make_designs(root: Path):
@@ -353,6 +355,68 @@ def run():
         check(st == 200 and pdf[:4] == b"%PDF", "proof with a half drop")
         check(c.call("POST", "/api/proof", dict(payload, recipe={"tile": "wobbly"}))[0] == 400, "an unknown tiling is refused")
 
+        print("Zoom")
+        import render as rd
+        zp = dict(payload, recipe={"tile": "off", "art_w": 20}, allowance=0, wall_w=20, wall_h=30)
+        st, jpg, hd = c.call("POST", "/api/zoom", dict(zp, fx0=0.25, fy0=0.25, fx1=0.5, fy1=0.5, view_px=600))
+        check(st == 200 and jpg[:2] == b"\xff\xd8", "zoom picture made")
+        zim = Image.open(io.BytesIO(jpg))
+        native = float(hd["X-Native-Px-Per-Cm"]); res = float(hd["X-Zoom-Px-Per-Cm"])
+        check(abs(res - min(native, 600 / (0.25 * 20))) < 0.01, "zoom is as sharp as the screen can show, up to the original")
+        st, jpg2, hd2 = c.call("POST", "/api/zoom", dict(zp, fx0=0.4, fy0=0.4, fx1=0.42, fy1=0.42, view_px=2000))
+        check(float(hd2["X-Zoom-Px-Per-Cm"]) <= native + 0.01, "never made sharper than the original file")
+        z2 = Image.open(io.BytesIO(jpg2)); check(z2.width > 20 and z2.height > 20, "a tiny area still gives a usable picture")
+        master_img = Image.open(server.LIB.get(rose)["path"]).convert("RGB")
+        ow, oh = round(20 * res), round(30 * res)
+        full = rd.render(master_img, {"tile": "off", "art_w": 20, "off_x": 0, "off_y": 0}, 20, 30, ow, oh)
+        x0, y0 = int(0.25 * ow), int(0.25 * oh)
+        part = rd.render(master_img, {"tile": "off", "art_w": 20, "off_x": 0, "off_y": 0}, 20, 30, ow, oh, x_range=(x0, x0 + zim.width), y_range=(y0, y0 + zim.height))
+        check(np.abs(np.asarray(part).astype(int) - np.asarray(full.crop((x0, y0, x0 + zim.width, y0 + zim.height))).astype(int)).max() <= 2, "zoomed window equals that part of the full picture")
+        check(c.call("POST", "/api/zoom", dict(zp, fx0=0.5, fy0=0.5, fx1=0.5, fy1=0.5))[0] == 400, "an empty zoom area is refused")
+        st, jf, _ = c.call("POST", "/api/zoom", dict(zp, recipe={"tile": "off", "art_w": 20, "flip_h": True, "flip_v": True}, fx0=0, fy0=0, fx1=1, fy1=1, view_px=300))
+        check(st == 200, "zoom works with flips")
+
+        print("Catalogue PDF")
+        import base64 as b64, re as _re
+        import catalogue as cg
+        allc = {a["id"]: a for a in c.call("GET", "/api/catalog")[1]}
+        some = list(allc)[:3]
+        ccfg = c.call("GET", "/api/config")[1]
+        check(ccfg["catalogue"]["mark"] == "logo" and ccfg["catalogue"]["position"] == "br" and ccfg["catalogue"]["opacity"] == 100,
+              "default is the logo at the bottom right")
+        st, j, _ = c.call("POST", "/api/catalogue", {"ids": some, "title": "Spring"})
+        check(st == 400 and "logo" in j["error"].lower(), "asks for the logo first when none is uploaded")
+        lg = Image.new("RGBA", (400, 120), (0, 0, 0, 0)); ImageDraw.Draw(lg).rectangle((0, 0, 399, 119), fill=(200, 0, 0, 255))
+        bb = io.BytesIO(); lg.save(bb, "PNG")
+        st, j, _ = c.call("POST", "/api/brand", {"kind": "logo", "data": "data:image/png;base64," + b64.b64encode(bb.getvalue()).decode()})
+        check(st == 200 and j["brand"]["logo"] and not j["brand"]["watermark"], "logo uploaded")
+        check(c.call("POST", "/api/brand", {"kind": "logo", "data": "AAAA"})[0] == 400, "a non-image upload is refused")
+        check(c.call("GET", "/" + j["brand"]["logo"])[0] == 200, "logo served")
+        st, pdf, hd = c.call("POST", "/api/catalogue", {"ids": some, "title": "Spring Collection", "customer": "Villa Rosa"})
+        check(st == 200 and pdf[:4] == b"%PDF", "catalogue made")
+        pages = len(_re.findall(rb"/Type /Page[^s]", pdf))
+        check(pages == len(some) + 1, f"cover plus one page per design ({pages} pages)")
+        (home / "cat.pdf").write_bytes(pdf)
+        txt = subprocess.run(["pdftotext", str(home / "cat.pdf"), "-"], capture_output=True, text=True).stdout
+        check("Spring Collection" in txt and "Prepared for Villa Rosa" in txt, "cover shows the title and customer")
+        check(all(allc[i]["name"] in txt for i in some), "every design is named on its page")
+        widths = [int(x) for x in _re.findall(rb"/Width (\d+)", pdf)]
+        check(widths and max(widths) <= 1600, f"pictures stay small ({max(widths)} px)")
+        st, pdf4, _ = c.call("POST", "/api/catalogue", {"ids": some, "per_page": 4, "settings": {"cover": False, "mark": "none"}})
+        check(st == 200 and len(_re.findall(rb"/Type /Page[^s]", pdf4)) == 1, "four to a page, no cover, no mark")
+        check(c.call("POST", "/api/catalogue", {"ids": []})[0] == 400, "an empty selection is refused")
+        # the mark itself
+        base = Image.new("RGB", (400, 300), "white")
+        marked = cg.apply_mark(base, lg, "br", 100, 20)
+        check(marked.getpixel((385, 285)) == (200, 0, 0) and marked.getpixel((10, 10)) == (255, 255, 255), "logo sits at the bottom right")
+        faint = cg.apply_mark(base, lg, "br", 10, 20).getpixel((385, 285))
+        check(faint[0] > 240 and 200 < faint[1] < 250, "10% is faint")
+        check(cg.clean_settings({"opacity": 3})["opacity"] == 10 and cg.clean_settings({"opacity": 500})["opacity"] == 100, "strength stays 10 to 100")
+        tiled = cg.apply_mark(base, lg, "tile", 50, 20)
+        check(tiled.getpixel((10, 10)) != (255, 255, 255) or tiled.getpixel((200, 150)) != (255, 255, 255), "tiled mark covers the picture")
+        st, j, _ = c.call("POST", "/api/brand", {"kind": "logo", "remove": True})
+        check(st == 200 and not j["brand"]["logo"], "logo removed")
+
         print("Office network")
         st, j, _ = c.call("POST", "/api/settings", {"share_network": True})
         check(st == 400, "sharing is refused until a PIN is set")
@@ -369,6 +433,9 @@ def run():
         team.cookie = h["Set-Cookie"].split(";")[0]
         check(team.call("GET", "/api/catalog")[0] == 200, "team member can browse")
         check(team.call("GET", "/api/textures")[0] == 200, "team members can use textures")
+        some_ids = [a["id"] for a in c.call("GET", "/api/catalog")[1]][:2]
+        check(team.call("POST", "/api/catalogue", {"ids": some_ids, "settings": {"mark": "none"}})[0] == 200, "team members can make a catalogue")
+        check(team.call("POST", "/api/brand", {"kind": "logo", "remove": True})[0] == 403, "team member cannot change the logo")
         check(team.call("GET", "/api/settings")[0] == 403 and team.call("POST", "/api/artwork", {"id": rose, "name": "x"})[0] == 403,
               "team member cannot change settings or tags")
         check(server.RUNTIME["host"] == "0.0.0.0", "server listens on the office network")
