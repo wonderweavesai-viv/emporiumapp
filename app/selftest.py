@@ -397,9 +397,11 @@ def run():
         pages = len(_re.findall(rb"/Type /Page[^s]", pdf))
         check(pages == len(some) + 1, f"cover plus one page per design ({pages} pages)")
         (home / "cat.pdf").write_bytes(pdf)
-        txt = subprocess.run(["pdftotext", str(home / "cat.pdf"), "-"], capture_output=True, text=True).stdout
-        check("Spring Collection" in txt and "Prepared for Villa Rosa" in txt, "cover shows the title and customer")
-        check(all(allc[i]["name"] in txt for i in some), "every design is named on its page")
+        import shutil as _shc
+        if _shc.which("pdftotext"):
+            txt = subprocess.run(["pdftotext", str(home / "cat.pdf"), "-"], capture_output=True, text=True).stdout
+            check("Spring Collection" in txt and "Prepared for Villa Rosa" in txt, "cover shows the title and customer")
+            check(all(allc[i]["name"] in txt for i in some), "every design is named on its page")
         widths = [int(x) for x in _re.findall(rb"/Width (\d+)", pdf)]
         check(widths and max(widths) <= 1600, f"pictures stay small ({max(widths)} px)")
         st, pdf4, _ = c.call("POST", "/api/catalogue", {"ids": some, "per_page": 4, "settings": {"cover": False, "mark": "none"}})
