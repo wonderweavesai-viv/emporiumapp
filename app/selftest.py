@@ -50,7 +50,7 @@ class Client:
         req = urllib.request.Request(self.base + path, data=json.dumps(body).encode() if body is not None else None,
                                      method=method, headers=h)
         try:
-            with urllib.request.urlopen(req, timeout=60) as r:
+            with urllib.request.urlopen(req, timeout=25) as r:
                 raw = r.read()
                 return r.status, (json.loads(raw) if "json" in (r.headers.get("Content-Type") or "") else raw), r.headers
         except urllib.error.HTTPError as e:
@@ -428,6 +428,15 @@ def run():
         check(st == 200 and j["sharing_active"], "sharing switched on with a PIN")
         time.sleep(1.5)
         team = Client(f"http://127.0.0.1:{server.RUNTIME['port']}")
+        for _try in range(12):               # the listener restarts on the new address; wait until it answers
+            try:
+                urllib.request.urlopen(team.base + "/api/config", timeout=4).read(); break
+            except Exception as e_:
+                print("  ... waiting for the listener:", repr(e_), server.RUNTIME, flush=True)
+                if _try == 11:
+                    print(subprocess.run("netstat -an | grep LISTEN | head -20", shell=True, capture_output=True, text=True).stdout)
+                time.sleep(2)
+                team = Client(f"http://127.0.0.1:{server.RUNTIME['port']}")
         check(team.call("GET", "/api/catalog")[0] == 401, "a team member needs the PIN")
         check(team.call("POST", "/api/login", {"pin": "0000"})[0] == 403, "wrong PIN refused")
         st, _, h = team.call("POST", "/api/login", {"pin": "4821"})
