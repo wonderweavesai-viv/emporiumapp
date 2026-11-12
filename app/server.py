@@ -15,6 +15,7 @@ import secrets
 import socket
 import subprocess
 import sys
+import socketserver
 import threading
 import time
 import traceback
@@ -933,6 +934,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(job, 202)
 
 
+class QuickServer(ThreadingHTTPServer):
+    """The standard server looks up the computer's full name when it starts. On some Macs that lookup stalls for a minute,
+    which made switching on office-network sharing hang. The name is not needed, so skip the lookup."""
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 class Listener:
     """The web server, which can be switched between 'this computer only' and 'office network' while running."""
 
@@ -946,7 +955,7 @@ class Listener:
         last = None
         for p in range(port, port + 30):
             try:
-                srv = ThreadingHTTPServer((host, p), Handler)
+                srv = QuickServer((host, p), Handler)
                 break
             except OSError as e:
                 last = e
